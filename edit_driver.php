@@ -26,7 +26,62 @@ if ($user['user_type'] === 'dispatcher') {
 
 $driver = $stmt->fetch();
 
-if (!$driver) {
+if (!$driver || !is_array($driver)) {
+    header('Location: drivers.php');
+    exit();
+}
+
+// Helper functions for safe data access (same as view_driver.php)
+function safeGet($array, $key, $default = '') {
+    return (is_array($array) && isset($array[$key]) && $array[$key] !== null) ? $array[$key] : $default;
+}
+
+function formatDate($date_string, $format = 'M d, Y') {
+    if (empty($date_string) || $date_string === '0000-00-00') {
+        return 'Not specified';
+    }
+    return date($format, strtotime($date_string));
+}
+
+function getFullName($driver) {
+    if (!is_array($driver)) {
+        return 'Unknown Driver';
+    }
+    
+    $name = '';
+    $first_name = safeGet($driver, 'first_name');
+    $middle_name = safeGet($driver, 'middle_name');
+    $last_name = safeGet($driver, 'last_name');
+    
+    if ($first_name) {
+        $name .= $first_name;
+    }
+    if ($middle_name) {
+        $name .= ' ' . $middle_name;
+    }
+    if ($last_name) {
+        $name .= ' ' . $last_name;
+    }
+    
+    return trim($name) ?: 'Unknown Driver';
+}
+
+// Extract ALL safe values at once to avoid any direct array access
+$driver_db_id = intval(safeGet($driver, 'id', 0));
+$driver_full_name = getFullName($driver);
+$driver_id_safe = safeGet($driver, 'driver_id', 'N/A');
+$driver_first_name = safeGet($driver, 'first_name');
+$driver_middle_name = safeGet($driver, 'middle_name');
+$driver_last_name = safeGet($driver, 'last_name');
+$driver_phone_number = safeGet($driver, 'phone_number');
+$driver_address = safeGet($driver, 'address');
+$driver_salary_account = safeGet($driver, 'salary_account');
+$driver_profile_picture = safeGet($driver, 'profile_picture');
+$date_of_birth = safeGet($driver, 'date_of_birth');
+$hire_date = safeGet($driver, 'hire_date');
+
+// Ensure we have a valid driver ID
+if ($driver_db_id <= 0) {
     header('Location: drivers.php');
     exit();
 }
@@ -45,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         // Check if driver ID already exists (excluding current driver)
         $stmt = $pdo->prepare("SELECT id FROM drivers WHERE driver_id = ? AND id != ?");
-        $stmt->execute([$new_driver_id, $driver_id]);
+        $stmt->execute([$new_driver_id, $driver_db_id]);
         if ($stmt->fetch()) {
             $error_message = 'A driver with this Driver ID already exists.';
         } else {
@@ -53,7 +108,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
                 
                 // Handle profile picture upload
-                $profile_picture_path = $driver['profile_picture'];
+                $profile_picture_path = $driver_profile_picture;
                 if (!empty($_FILES['profile_picture']['name'])) {
                     if ($_FILES['profile_picture']['error'] === UPLOAD_ERR_OK) {
                         $file_size = $_FILES['profile_picture']['size'];
@@ -80,25 +135,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($user['user_type'] === 'station_manager') {
                     // Station manager can edit salary account
                     $stmt = $pdo->prepare("UPDATE drivers SET driver_id = ?, phone_number = ?, address = ?, salary_account = ?, profile_picture = ? WHERE id = ?");
-                    $stmt->execute([$new_driver_id, $phone_number, $address, $salary_account, $profile_picture_path, $driver_id]);
+                    $stmt->execute([$new_driver_id, $phone_number, $address, $salary_account, $profile_picture_path, $driver_db_id]);
                 } else {
                     // Dispatcher cannot edit salary account
                     $stmt = $pdo->prepare("UPDATE drivers SET driver_id = ?, phone_number = ?, address = ?, profile_picture = ? WHERE id = ?");
-                    $stmt->execute([$new_driver_id, $phone_number, $address, $profile_picture_path, $driver_id]);
+                    $stmt->execute([$new_driver_id, $phone_number, $address, $profile_picture_path, $driver_db_id]);
                 }
                 
                 $pdo->commit();
                 
                 $success_message = 'Driver updated successfully!';
                 
-                // Refresh driver data
-                $driver['driver_id'] = $new_driver_id;
-                $driver['phone_number'] = $phone_number;
-                $driver['address'] = $address;
+                // Refresh driver data with safe values
+                $driver_id_safe = $new_driver_id;
+                $driver_phone_number = $phone_number;
+                $driver_address = $address;
                 if ($user['user_type'] === 'station_manager') {
-                    $driver['salary_account'] = $salary_account;
+                    $driver_salary_account = $salary_account;
                 }
-                $driver['profile_picture'] = $profile_picture_path;
+                $driver_profile_picture = $profile_picture_path;
                 
             } catch (Exception $e) {
                 $pdo->rollBack();
@@ -144,8 +199,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="row">
             <div class="col-lg-8 mx-auto">
                 <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h2><i class="fas fa-user-edit me-2"></i>Edit Driver: <?php echo htmlspecialchars($driver['first_name'] . ' ' . $driver['last_name']); ?></h2>
-                    <a href="view_driver.php?id=<?php echo $driver['id']; ?>" class="btn btn-secondary">
+                    <h2><i class="fas fa-user-edit me-2"></i>Edit Driver: <?php echo htmlspecialchars($driver_full_name); ?></h2>
+                    <a href="view_driver.php?id=<?php echo $driver_db_id; ?>" class="btn btn-secondary">
                         <i class="fas fa-arrow-left me-1"></i>Back to Driver
                     </a>
                 </div>
@@ -176,8 +231,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <div class="col-12">
                                     <label class="form-label">Current Profile Picture</label>
                                     <div class="d-flex align-items-center">
-                                        <?php if ($driver['profile_picture'] && file_exists($driver['profile_picture'])): ?>
-                                            <img src="<?php echo htmlspecialchars($driver['profile_picture']); ?>" 
+                                        <?php if ($driver_profile_picture && file_exists($driver_profile_picture)): ?>
+                                            <img src="<?php echo htmlspecialchars($driver_profile_picture); ?>" 
                                                  alt="Current Profile Picture" class="current-picture me-3">
                                         <?php else: ?>
                                             <div class="picture-placeholder me-3">
@@ -185,7 +240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                             </div>
                                         <?php endif; ?>
                                         <div>
-                                            <h6><?php echo htmlspecialchars($driver['first_name'] . ' ' . $driver['last_name']); ?></h6>
+                                            <h6><?php echo htmlspecialchars($driver_full_name); ?></h6>
                                             <p class="text-muted mb-0">Upload a new picture to replace the current one</p>
                                         </div>
                                     </div>
@@ -196,7 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <div class="col-md-6 mb-3">
                                     <label for="driver_id" class="form-label">Driver ID *</label>
                                     <input type="text" class="form-control" id="driver_id" name="driver_id" 
-                                           value="<?php echo htmlspecialchars($driver['driver_id']); ?>" 
+                                           value="<?php echo htmlspecialchars($driver_id_safe); ?>" 
                                            maxlength="30" required>
                                     <div class="form-text">Unique identifier for the driver (max 30 characters)</div>
                                 </div>
@@ -212,19 +267,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="mb-3">
                                 <label for="phone_number" class="form-label">Phone Number</label>
                                 <input type="tel" class="form-control" id="phone_number" name="phone_number" 
-                                       value="<?php echo htmlspecialchars($driver['phone_number']); ?>">
+                                       value="<?php echo htmlspecialchars($driver_phone_number); ?>">
                             </div>
                             
                             <div class="mb-3">
                                 <label for="address" class="form-label">Address</label>
-                                <textarea class="form-control" id="address" name="address" rows="3"><?php echo htmlspecialchars($driver['address']); ?></textarea>
+                                <textarea class="form-control" id="address" name="address" rows="3"><?php echo htmlspecialchars($driver_address); ?></textarea>
                             </div>
 
                             <?php if ($user['user_type'] === 'station_manager'): ?>
                             <div class="mb-4">
                                 <label for="salary_account" class="form-label">Salary Account (IBAN)</label>
                                 <input type="text" class="form-control" id="salary_account" name="salary_account" 
-                                       value="<?php echo htmlspecialchars($driver['salary_account']); ?>"
+                                       value="<?php echo htmlspecialchars($driver_salary_account); ?>"
                                        placeholder="e.g., DE89370400440532013000" maxlength="34">
                                 <div class="form-text">
                                     <span id="iban-status"></span>
@@ -241,17 +296,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <div class="col-md-4 mb-3">
                                     <label class="form-label text-muted">First Name</label>
                                     <input type="text" class="form-control-plaintext" readonly 
-                                           value="<?php echo htmlspecialchars($driver['first_name']); ?>">
+                                           value="<?php echo htmlspecialchars($driver_first_name ?: 'Not specified'); ?>">
                                 </div>
                                 <div class="col-md-4 mb-3">
                                     <label class="form-label text-muted">Middle Name</label>
                                     <input type="text" class="form-control-plaintext" readonly 
-                                           value="<?php echo htmlspecialchars($driver['middle_name'] ?: 'Not specified'); ?>">
+                                           value="<?php echo htmlspecialchars($driver_middle_name ?: 'Not specified'); ?>">
                                 </div>
                                 <div class="col-md-4 mb-3">
                                     <label class="form-label text-muted">Last Name</label>
                                     <input type="text" class="form-control-plaintext" readonly 
-                                           value="<?php echo htmlspecialchars($driver['last_name']); ?>">
+                                           value="<?php echo htmlspecialchars($driver_last_name ?: 'Not specified'); ?>">
                                 </div>
                             </div>
 
@@ -259,26 +314,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label text-muted">Date of Birth</label>
                                     <input type="text" class="form-control-plaintext" readonly 
-                                           value="<?php echo $driver['date_of_birth'] ? date('M d, Y', strtotime($driver['date_of_birth'])) : 'Not specified'; ?>">
+                                           value="<?php echo formatDate($date_of_birth); ?>">
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label text-muted">Hire Date</label>
                                     <input type="text" class="form-control-plaintext" readonly 
-                                           value="<?php echo $driver['hire_date'] ? date('M d, Y', strtotime($driver['hire_date'])) : 'Not specified'; ?>">
+                                           value="<?php echo formatDate($hire_date); ?>">
                                 </div>
                             </div>
 
-                            <?php if ($user['user_type'] === 'dispatcher' && $driver['salary_account']): ?>
+                            <?php if ($user['user_type'] === 'dispatcher' && $driver_salary_account): ?>
                             <div class="mb-3">
                                 <label class="form-label text-muted">Salary Account (IBAN)</label>
                                 <input type="text" class="form-control-plaintext" readonly 
-                                       value="<?php echo htmlspecialchars($driver['salary_account'] ?: 'Not specified'); ?>">
+                                       value="<?php echo htmlspecialchars($driver_salary_account ?: 'Not specified'); ?>">
                                 <div class="form-text text-muted">Contact station manager to modify this field</div>
                             </div>
                             <?php endif; ?>
                             
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
-                                <a href="view_driver.php?id=<?php echo $driver['id']; ?>" class="btn btn-secondary me-md-2">Cancel</a>
+                                <a href="view_driver.php?id=<?php echo $driver_db_id; ?>" class="btn btn-secondary me-md-2">Cancel</a>
                                 <button type="submit" class="btn btn-primary" id="submitBtn">
                                     <i class="fas fa-save me-1"></i>Update Driver
                                 </button>

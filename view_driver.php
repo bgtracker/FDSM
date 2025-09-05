@@ -445,10 +445,13 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                             <label for="document_type" class="form-label">Document Type</label>
                             <select class="form-select" id="document_type" name="document_type" required>
                                 <option value="">Select Document Type</option>
-                                <option value="ID">ID</option>
+                                <option value="ID">Personal ID</option>
                                 <option value="Drivers License">Driver's License</option>
                                 <option value="Medical Certificate">Medical Certificate</option>
                                 <option value="Background Check">Background Check</option>
+                                <option value="Bank Account Confirmation">Bank Account Confirmation</option>
+                                <option value="Insurance">Insurance Documents</option>
+                                <option value="Training Certificate">Training Certificate</option>
                                 <option value="Other">Other</option>
                             </select>
                         </div>
