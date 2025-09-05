@@ -128,6 +128,12 @@ CREATE TABLE driver_leaves (
     INDEX idx_station_date (station_id, start_date, end_date)
 );
 
+-- Add salary_account field to drivers table
+ALTER TABLE drivers ADD COLUMN salary_account VARCHAR(34) NULL AFTER address;
+
+-- Add index for salary_account if needed for searches
+CREATE INDEX idx_salary_account ON drivers(salary_account);
+
 -- Insert initial stations
 INSERT INTO stations (station_code, station_name) VALUES
 ('DRP4', 'DRP4 Station'),

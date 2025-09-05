@@ -2,14 +2,19 @@
 require_once 'config.php';
 
 $current_page = 'login';
-$page_title = 'Login - Van Fleet Management';
+$page_title = 'Management Login - Van Fleet Management';
 $error_message = '';
 $success_message = '';
 
 // Redirect if already logged in
 if (isLoggedIn()) {
-    header('Location: index.php');
-    exit();
+    if (isDriverLoggedIn()) {
+        header('Location: driver_dashboard.php');
+        exit();
+    } else {
+        header('Location: dashboard.php');
+        exit();
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -29,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['username'] = $user['username'];
                 $_SESSION['user_type'] = $user['user_type'];
                 
-                header('Location: index.php');
+                header('Location: dashboard.php');
                 exit();
             } else {
                 $error_message = 'Invalid username or password.';
@@ -69,9 +74,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="card login-card">
                     <div class="card-body p-5">
                         <div class="text-center mb-4">
-                            <i class="fas fa-truck fa-3x text-primary mb-3"></i>
-                            <h3>Login to VFM</h3>
-                            <p class="text-muted">Van Fleet Management System</p>
+                            <i class="fas fa-users-cog fa-3x text-primary mb-3"></i>
+                            <h3>Management Login</h3>
+                            <p class="text-muted">Dispatcher & Station Manager Access</p>
                         </div>
 
                         <?php if ($error_message): ?>
@@ -114,6 +119,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <i class="fas fa-sign-in-alt me-2"></i>Login
                             </button>
                         </form>
+
+                        <div class="text-center mt-4">
+                            <a href="index.php" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left me-1"></i>Back to Login Selection
+                            </a>
+                        </div>
 
                         <div class="text-center mt-4">
                             <small class="text-muted">

@@ -40,6 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_driver'])) {
     $date_of_birth = $_POST['date_of_birth'];
     $phone_number = trim($_POST['phone_number']);
     $address = trim($_POST['address']);
+    $salary_account = trim($_POST['salary_account']);
     $hire_date = $_POST['hire_date'];
     $station_id = intval($_POST['station_id']);
     $van_id = intval($_POST['van_id']);
@@ -85,8 +86,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_driver'])) {
                     }
                     
                     // Insert driver
-                    $stmt = $pdo->prepare("INSERT INTO drivers (driver_id, first_name, middle_name, last_name, date_of_birth, phone_number, address, hire_date, profile_picture, station_id, van_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                    $stmt->execute([$driver_id, $first_name, $middle_name, $last_name, $date_of_birth, $phone_number, $address, $hire_date, $profile_picture_path, $station_id, $van_id > 0 ? $van_id : null]);
+                    $stmt = $pdo->prepare("INSERT INTO drivers (driver_id, first_name, middle_name, last_name, date_of_birth, phone_number, address, salary_account, hire_date, profile_picture, station_id, van_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt->execute([$driver_id, $first_name, $middle_name, $last_name, $date_of_birth, $phone_number, $address, $salary_account, $hire_date, $profile_picture_path, $station_id, $van_id > 0 ? $van_id : null]);
                     $new_driver_id = $pdo->lastInsertId();
                     
                     // Handle document uploads
@@ -267,6 +268,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_driver'])) {
                                 <textarea class="form-control" id="address" name="address" rows="3"><?php echo isset($_POST['address']) ? htmlspecialchars($_POST['address']) : ''; ?></textarea>
                             </div>
                             
+                            <?php if ($user['user_type'] === 'station_manager'): ?>
+                            <div class="mb-3">
+                                <label for="salary_account" class="form-label">Salary Account (IBAN)</label>
+                                <input type="text" class="form-control" id="salary_account" name="salary_account" 
+                                       value="<?php echo isset($_POST['salary_account']) ? htmlspecialchars($_POST['salary_account']) : ''; ?>"
+                                       placeholder="e.g., DE89370400440532013000" maxlength="34">
+                                <div class="form-text">
+                                    <span id="iban-status"></span>
+                                    International Bank Account Number (IBAN) for salary payments
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            
                             <div class="mb-3">
                                 <label for="van_id" class="form-label">Assign to Van (Optional)</label>
                                 <select class="form-select" id="van_id" name="van_id">
@@ -318,7 +332,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_driver'])) {
                             
                             <div class="d-grid gap-2 d-md-flex justify-content-md-end">
                                 <a href="drivers.php" class="btn btn-secondary me-md-2">Cancel</a>
-                                <button type="submit" name="submit_driver" class="btn btn-primary">
+                                <button type="submit" name="submit_driver" class="btn btn-primary" id="submitBtn">
                                     <i class="fas fa-save me-1"></i>Add Driver
                                 </button>
                             </div>
@@ -337,6 +351,78 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_driver'])) {
         document.getElementById('driver_id').addEventListener('input', function() {
             this.value = this.value.toUpperCase();
         });
+        
+        // IBAN Validation
+        let ibanValid = true; // Default to true if no IBAN entered
+        
+        <?php if ($user['user_type'] === 'station_manager'): ?>
+        function validateIBAN(iban) {
+            const ibanInput = document.getElementById('salary_account');
+            const statusDiv = document.getElementById('iban-status');
+            const submitBtn = document.getElementById('submitBtn');
+            
+            // Clear status
+            statusDiv.innerHTML = '';
+            
+            if (!iban || iban.trim() === '') {
+                ibanValid = true;
+                submitBtn.disabled = false;
+                return;
+            }
+            
+            // Remove spaces and convert to uppercase
+            iban = iban.replace(/\s/g, '').toUpperCase();
+            
+            // Show loading
+            statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin text-primary me-1"></i>Validating IBAN...';
+            submitBtn.disabled = true;
+            
+            // Call free IBAN validation API
+            fetch(`https://openiban.com/validate/${iban}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.valid === true) {
+                        ibanValid = true;
+                        statusDiv.innerHTML = '<i class="fas fa-check-circle text-success me-1"></i>Valid IBAN';
+                        if (data.bankData && data.bankData.name) {
+                            statusDiv.innerHTML += ` - ${data.bankData.name}`;
+                        }
+                        submitBtn.disabled = false;
+                    } else {
+                        ibanValid = false;
+                        statusDiv.innerHTML = '<i class="fas fa-times-circle text-danger me-1"></i>Invalid IBAN';
+                        submitBtn.disabled = true;
+                    }
+                })
+                .catch(error => {
+                    console.error('IBAN validation error:', error);
+                    // If API fails, allow submission but show warning
+                    ibanValid = true;
+                    statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle text-warning me-1"></i>Could not validate IBAN (proceeding anyway)';
+                    submitBtn.disabled = false;
+                });
+        }
+        
+        // Add IBAN validation on input
+        document.getElementById('salary_account').addEventListener('input', function() {
+            const iban = this.value;
+            clearTimeout(this.validationTimeout);
+            this.validationTimeout = setTimeout(() => {
+                validateIBAN(iban);
+            }, 500); // Debounce for 500ms
+        });
+        
+        // Format IBAN as user types (add spaces every 4 characters)
+        document.getElementById('salary_account').addEventListener('input', function() {
+            let value = this.value.replace(/\s/g, '').toUpperCase();
+            let formatted = '';
+            for (let i = 0; i < value.length; i += 4) {
+                if (i > 0) formatted += ' ';
+                formatted += value.substr(i, 4);
+            }
+            this.value = formatted;
+        });
+        <?php endif; ?>
         
         // Auto-update available vans when station changes
         document.getElementById('station_id').addEventListener('change', function() {
@@ -396,6 +482,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_driver'])) {
                     document.getElementById('addDocument').style.display = 'inline-block';
                 }
             }
+        });
+        
+        // Form validation before submit
+        document.getElementById('driverForm').addEventListener('submit', function(e) {
+            <?php if ($user['user_type'] === 'station_manager'): ?>
+            if (!ibanValid) {
+                e.preventDefault();
+                alert('Please enter a valid IBAN or leave the field empty.');
+                return false;
+            }
+            <?php endif; ?>
         });
     </script>
 </body>

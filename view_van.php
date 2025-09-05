@@ -35,10 +35,15 @@ if (!$van) {
     exit();
 }
 
-// Get assigned driver
+// Get assigned driver with null safety
 $stmt = $pdo->prepare("SELECT * FROM drivers WHERE van_id = ?");
 $stmt->execute([$van_id]);
 $assigned_driver = $stmt->fetch();
+
+// Ensure assigned_driver is properly handled
+if (!$assigned_driver || !is_array($assigned_driver)) {
+    $assigned_driver = null;
+}
 
 // Get van images
 $stmt = $pdo->prepare("SELECT * FROM van_images WHERE van_id = ? ORDER BY created_at");
@@ -64,6 +69,28 @@ $stmt = $pdo->prepare("SELECT vm.*, u.username, u.first_name, u.last_name
                       LIMIT 5");
 $stmt->execute([$van_id]);
 $recent_maintenance = $stmt->fetchAll();
+
+// Helper function to safely get driver name
+function getDriverName($driver) {
+    if (!$driver || !is_array($driver)) {
+        return null;
+    }
+    
+    $name = '';
+    if (!empty($driver['first_name'])) {
+        $name .= $driver['first_name'];
+    }
+    if (!empty($driver['middle_name'])) {
+        $name .= ' ' . $driver['middle_name'];
+    }
+    if (!empty($driver['last_name'])) {
+        $name .= ' ' . $driver['last_name'];
+    }
+    
+    return trim($name) ?: null;
+}
+
+$driver_name = getDriverName($assigned_driver);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -129,6 +156,10 @@ $recent_maintenance = $stmt->fetchAll();
                                         <?php echo htmlspecialchars($van['station_code'] . ' - ' . $van['station_name']); ?>
                                     </div>
                                     <div class="col-md-6 mb-3">
+                                        <strong>Make & Model:</strong><br>
+                                        <?php echo htmlspecialchars($van['make'] . ' ' . $van['model']); ?>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
                                         <strong>Status:</strong><br>
                                         <?php
                                         $status_class = '';
@@ -150,6 +181,12 @@ $recent_maintenance = $stmt->fetchAll();
                                         ?>
                                         <span class="badge bg-<?php echo $status_class; ?> fs-6"><?php echo $status_text; ?></span>
                                     </div>
+                                    <?php if (!empty($van['vin_number'])): ?>
+                                    <div class="col-md-6 mb-3">
+                                        <strong>VIN Number:</strong><br>
+                                        <code><?php echo htmlspecialchars($van['vin_number']); ?></code>
+                                    </div>
+                                    <?php endif; ?>
                                     <div class="col-md-6 mb-3">
                                         <strong>Added:</strong><br>
                                         <small class="text-muted"><?php echo date('M d, Y \a\t g:i A', strtotime($van['created_at'])); ?></small>
@@ -265,15 +302,16 @@ $recent_maintenance = $stmt->fetchAll();
                                 <h5 class="mb-0">Assigned Driver</h5>
                             </div>
                             <div class="card-body">
-                                <?php if ($assigned_driver): ?>
+                                <?php if ($assigned_driver && $driver_name): ?>
                                     <div class="text-center">
                                         <i class="fas fa-user-circle fa-3x text-primary mb-2"></i>
                                         <h6>
-                                            <a href="view_driver.php?id=<?php echo $assigned_driver['id']; ?>" class="text-decoration-none">
-                                                <?php echo htmlspecialchars($assigned_driver['first_name'] . ' ' . ($assigned_driver['middle_name'] ? $assigned_driver['middle_name'] . ' ' : '') . $assigned_driver['last_name']); ?>
+                                            <a href="view_driver.php?id=<?php echo intval($assigned_driver['id']); ?>" class="text-decoration-none">
+                                                <?php echo htmlspecialchars($driver_name); ?>
                                             </a>
                                         </h6>
-                                        <small class="text-muted">Driver (Click to view profile)</small>
+                                        <small class="text-muted">Driver ID: <?php echo htmlspecialchars($assigned_driver['driver_id'] ?? 'N/A'); ?></small><br>
+                                        <small class="text-muted">(Click to view profile)</small>
                                     </div>
                                 <?php else: ?>
                                     <div class="text-center text-muted">
@@ -303,9 +341,11 @@ $recent_maintenance = $stmt->fetchAll();
                                     <button type="button" class="btn btn-secondary" data-bs-toggle="modal" data-bs-target="#documentsModal">
                                         <i class="fas fa-file-alt me-1"></i>View Van Docs
                                     </button>
+                                    <?php if (!empty($van['vin_number'])): ?>
                                     <button type="button" class="btn btn-dark" data-bs-toggle="modal" data-bs-target="#qrModal">
                                         <i class="fas fa-qrcode me-1"></i>QR Generator
                                     </button>
+                                    <?php endif; ?>
                                     <a href="drivers.php" class="btn btn-success">
                                         <i class="fas fa-users me-1"></i>Manage Drivers
                                     </a>
@@ -319,6 +359,7 @@ $recent_maintenance = $stmt->fetchAll();
     </div>
 
     <!-- QR Generator Modal -->
+    <?php if (!empty($van['vin_number'])): ?>
     <div class="modal fade" id="qrModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -347,6 +388,7 @@ $recent_maintenance = $stmt->fetchAll();
             </div>
         </div>
     </div>
+    <?php endif; ?>
 
     <!-- Media Modal -->
     <div class="modal fade" id="mediaModal" tabindex="-1" aria-hidden="true">
@@ -468,8 +510,6 @@ $recent_maintenance = $stmt->fetchAll();
         </div>
     </div>
 
-    </div>
-
     <?php include 'includes/footer.php'; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -477,6 +517,7 @@ $recent_maintenance = $stmt->fetchAll();
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Page loaded, setting up QR functionality');
             
+            <?php if (!empty($van['vin_number'])): ?>
             // Test if modal exists
             const qrModal = document.getElementById('qrModal');
             const qrButton = document.querySelector('[data-bs-target="#qrModal"]');
@@ -529,12 +570,14 @@ $recent_maintenance = $stmt->fetchAll();
             qrButton.addEventListener('click', function(e) {
                 console.log('QR Button clicked!');
             });
+            <?php endif; ?>
         });
         
         // Download QR code function
         function downloadQR() {
             console.log('Download QR called');
             
+            <?php if (!empty($van['vin_number'])): ?>
             const img = document.querySelector('#qrcode img');
             const vinNumber = '<?php echo htmlspecialchars($van['vin_number']); ?>';
             const licensePlate = '<?php echo htmlspecialchars($van['license_plate']); ?>';
@@ -575,6 +618,7 @@ $recent_maintenance = $stmt->fetchAll();
                 
                 console.log('QR Code downloaded via direct link');
             }
+            <?php endif; ?>
         }
     </script>
 </body>

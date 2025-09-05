@@ -24,10 +24,15 @@ function isLoggedIn() {
     return isset($_SESSION['user_id']);
 }
 
-// Get current user data
+// Check if driver is logged in
+function isDriverLoggedIn() {
+    return isset($_SESSION['user_type']) && $_SESSION['user_type'] === 'driver';
+}
+
+// Get current user data (for management users)
 function getCurrentUser() {
     global $pdo;
-    if (isLoggedIn()) {
+    if (isLoggedIn() && !isDriverLoggedIn()) {
         $stmt = $pdo->prepare("SELECT u.*, s.station_code, s.station_name FROM users u LEFT JOIN stations s ON u.station_id = s.id WHERE u.id = ?");
         $stmt->execute([$_SESSION['user_id']]);
         return $stmt->fetch();
@@ -35,8 +40,32 @@ function getCurrentUser() {
     return null;
 }
 
+// Get current driver data (for driver users)
+function getCurrentDriver() {
+    global $pdo;
+    if (isDriverLoggedIn()) {
+        $stmt = $pdo->prepare("SELECT d.*, s.station_code, s.station_name FROM drivers d LEFT JOIN stations s ON d.station_id = s.id WHERE d.id = ?");
+        $stmt->execute([$_SESSION['driver_id']]);
+        return $stmt->fetch();
+    }
+    return null;
+}
+
+// Get current user data (unified function for all user types)
+function getCurrentUserData() {
+    if (isDriverLoggedIn()) {
+        return getCurrentDriver();
+    } else {
+        return getCurrentUser();
+    }
+}
+
 // Check if user has permission
 function hasPermission($required_role = null) {
+    if (isDriverLoggedIn()) {
+        return $required_role === 'driver';
+    }
+    
     $user = getCurrentUser();
     if (!$user) return false;
     
@@ -46,10 +75,24 @@ function hasPermission($required_role = null) {
     return true;
 }
 
-// Redirect if not logged in
+// Redirect if not logged in (for management users)
 function requireLogin() {
     if (!isLoggedIn()) {
-        header('Location: login.php');
+        header('Location: index.php');
+        exit();
+    }
+    
+    // If a driver tries to access management pages, redirect them
+    if (isDriverLoggedIn()) {
+        header('Location: driver_dashboard.php');
+        exit();
+    }
+}
+
+// Redirect if not logged in as driver
+function requireDriverLogin() {
+    if (!isLoggedIn() || !isDriverLoggedIn()) {
+        header('Location: index.php');
         exit();
     }
 }

@@ -1,5 +1,7 @@
 <?php
 $user = getCurrentUser();
+$driver = getCurrentDriver();
+$current_user = $user ?: $driver;
 ?>
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container">
@@ -8,19 +10,49 @@ $user = getCurrentUser();
                 <span class="navbar-toggler-icon"></span>
             </button>
             <span class="navbar-text text-white-50">
-                FDMS v1.132
+                FDMS v1.135(b)
             </span>
         </div>
         
         <div class="collapse navbar-collapse" id="navbarNav">
             <ul class="navbar-nav ms-auto">
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($current_page === 'home') ? 'active' : ''; ?>" href="index.php">
-                        <i class="fas fa-home me-1"></i>Home
-                    </a>
-                </li>
-                
-                <?php if (isLoggedIn()): ?>
+                <?php if (!isLoggedIn()): ?>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($current_page === 'home') ? 'active' : ''; ?>" href="index.php">
+                            <i class="fas fa-home me-1"></i>Home
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($current_page === 'about') ? 'active' : ''; ?>" href="about.php">
+                            <i class="fas fa-info-circle me-1"></i>About
+                        </a>
+                    </li>
+                <?php elseif (isDriverLoggedIn()): ?>
+                    <!-- Driver Menu -->
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($current_page === 'dashboard') ? 'active' : ''; ?>" href="driver_dashboard.php">
+                            <i class="fas fa-tachometer-alt me-1"></i>Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <span class="navbar-text me-3">
+                            <i class="fas fa-user-tie me-1"></i>
+                            <?php echo htmlspecialchars($driver['first_name'] . ' (' . $driver['driver_id'] . ')'); ?>
+                        </span>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="logout.php">
+                            <i class="fas fa-sign-out-alt me-1"></i>Logout
+                        </a>
+                    </li>
+                <?php else: ?>
+                    <!-- Management Menu -->
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($current_page === 'dashboard') ? 'active' : ''; ?>" href="dashboard.php">
+                            <i class="fas fa-tachometer-alt me-1"></i>Dashboard
+                        </a>
+                    </li>
+                    
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($current_page === 'fleet') ? 'active' : ''; ?>" href="fleet.php">
                             <i class="fas fa-truck me-1"></i>My Fleet
@@ -60,11 +92,13 @@ $user = getCurrentUser();
                     </li>
                 <?php endif; ?>
                 
+                <?php if (!isLoggedIn()): ?>
                 <li class="nav-item">
                     <a class="nav-link <?php echo ($current_page === 'about') ? 'active' : ''; ?>" href="about.php">
                         <i class="fas fa-info-circle me-1"></i>About
                     </a>
                 </li>
+                <?php endif; ?>
             </ul>
         </div>
     </div>

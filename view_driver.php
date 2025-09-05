@@ -32,14 +32,99 @@ if ($user['user_type'] === 'dispatcher') {
 
 $driver = $stmt->fetch();
 
-if (!$driver) {
+if (!$driver || !is_array($driver)) {
     header('Location: drivers.php');
     exit();
 }
 
-// Get driver documents
+// Helper functions for safe data access
+function safeGet($array, $key, $default = '') {
+    return (is_array($array) && isset($array[$key]) && $array[$key] !== null) ? $array[$key] : $default;
+}
+
+function formatDate($date_string, $format = 'M d, Y') {
+    if (empty($date_string) || $date_string === '0000-00-00') {
+        return 'Not specified';
+    }
+    return date($format, strtotime($date_string));
+}
+
+function formatDateTime($datetime_string, $format = 'M d, Y \a\t g:i A') {
+    if (empty($datetime_string)) {
+        return 'Not specified';
+    }
+    return date($format, strtotime($datetime_string));
+}
+
+function getFullName($driver) {
+    if (!is_array($driver)) {
+        return 'Unknown Driver';
+    }
+    
+    $name = '';
+    $first_name = safeGet($driver, 'first_name');
+    $middle_name = safeGet($driver, 'middle_name');
+    $last_name = safeGet($driver, 'last_name');
+    
+    if ($first_name) {
+        $name .= $first_name;
+    }
+    if ($middle_name) {
+        $name .= ' ' . $middle_name;
+    }
+    if ($last_name) {
+        $name .= ' ' . $last_name;
+    }
+    
+    return trim($name) ?: 'Unknown Driver';
+}
+
+function getVanInfo($driver) {
+    if (!is_array($driver)) {
+        return null;
+    }
+    
+    $van_license = safeGet($driver, 'van_license');
+    $van_make = safeGet($driver, 'van_make');
+    $van_model = safeGet($driver, 'van_model');
+    
+    if (!$van_license) {
+        return null;
+    }
+    
+    return [
+        'license' => $van_license,
+        'make_model' => trim($van_make . ' ' . $van_model)
+    ];
+}
+
+// Extract ALL safe values at once to avoid any direct array access
+$driver_db_id = intval(safeGet($driver, 'id', 0));
+$driver_full_name = getFullName($driver);
+$driver_id_safe = safeGet($driver, 'driver_id', 'N/A');
+$station_code = safeGet($driver, 'station_code', 'N/A');
+$station_name = safeGet($driver, 'station_name', 'Unknown Station');
+$profile_picture = safeGet($driver, 'profile_picture');
+$date_of_birth = safeGet($driver, 'date_of_birth');
+$hire_date = safeGet($driver, 'hire_date');
+$phone_number = safeGet($driver, 'phone_number');
+$address = safeGet($driver, 'address');
+$salary_account = safeGet($driver, 'salary_account');
+$created_at = safeGet($driver, 'created_at');
+$updated_at = safeGet($driver, 'updated_at');
+
+// Ensure we have a valid driver ID
+if ($driver_db_id <= 0) {
+    header('Location: drivers.php');
+    exit();
+}
+
+// Get van information
+$van_info = getVanInfo($driver);
+
+// Get driver documents using the safe driver ID
 $stmt = $pdo->prepare("SELECT * FROM driver_documents WHERE driver_id = ? ORDER BY document_type, created_at");
-$stmt->execute([$driver_id]);
+$stmt->execute([$driver_db_id]);
 $driver_documents = $stmt->fetchAll();
 
 // Handle success/error messages from redirects
@@ -73,6 +158,11 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
             justify-content: center;
             color: #6c757d;
         }
+        .iban-display {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #0d6efd;
+        }
     </style>
 </head>
 <body>
@@ -84,10 +174,10 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <h2>
                         <i class="fas fa-user me-2"></i>
-                        Driver Details: <?php echo htmlspecialchars($driver['first_name'] . ' ' . $driver['last_name']); ?>
+                        Driver Details: <?php echo htmlspecialchars($driver_full_name); ?>
                     </h2>
                     <div>
-                        <a href="edit_driver.php?id=<?php echo $driver['id']; ?>" class="btn btn-primary me-2">
+                        <a href="edit_driver.php?id=<?php echo $driver_db_id; ?>" class="btn btn-primary me-2">
                             <i class="fas fa-edit me-1"></i>Edit
                         </a>
                         <a href="drivers.php" class="btn btn-secondary">
@@ -118,8 +208,8 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                             <div class="card-body">
                                 <div class="row align-items-center">
                                     <div class="col-auto">
-                                        <?php if ($driver['profile_picture'] && file_exists($driver['profile_picture'])): ?>
-                                            <img src="<?php echo htmlspecialchars($driver['profile_picture']); ?>" 
+                                        <?php if ($profile_picture && file_exists($profile_picture)): ?>
+                                            <img src="<?php echo htmlspecialchars($profile_picture); ?>" 
                                                  alt="Profile Picture" class="profile-picture">
                                         <?php else: ?>
                                             <div class="profile-placeholder">
@@ -128,9 +218,9 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                                         <?php endif; ?>
                                     </div>
                                     <div class="col">
-                                        <h3 class="mb-1"><?php echo htmlspecialchars($driver['first_name'] . ' ' . ($driver['middle_name'] ? $driver['middle_name'] . ' ' : '') . $driver['last_name']); ?></h3>
-                                        <p class="text-muted mb-2">Driver ID: <strong><?php echo htmlspecialchars($driver['driver_id']); ?></strong></p>
-                                        <p class="text-muted mb-0">Station: <strong><?php echo htmlspecialchars($driver['station_code']); ?></strong></p>
+                                        <h3 class="mb-1"><?php echo htmlspecialchars($driver_full_name); ?></h3>
+                                        <p class="text-muted mb-2">Driver ID: <strong><?php echo htmlspecialchars($driver_id_safe); ?></strong></p>
+                                        <p class="text-muted mb-0">Station: <strong><?php echo htmlspecialchars($station_code); ?></strong></p>
                                     </div>
                                 </div>
                             </div>
@@ -145,41 +235,71 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                                 <div class="row">
                                     <div class="col-md-6 mb-3">
                                         <strong>Full Name:</strong><br>
-                                        <?php echo htmlspecialchars($driver['first_name'] . ' ' . ($driver['middle_name'] ? $driver['middle_name'] . ' ' : '') . $driver['last_name']); ?>
+                                        <?php echo htmlspecialchars($driver_full_name); ?>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <strong>Driver ID:</strong><br>
-                                        <span class="text-primary"><?php echo htmlspecialchars($driver['driver_id']); ?></span>
+                                        <span class="text-primary"><?php echo htmlspecialchars($driver_id_safe); ?></span>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <strong>Date of Birth:</strong><br>
-                                        <?php echo $driver['date_of_birth'] ? date('M d, Y', strtotime($driver['date_of_birth'])) : 'Not specified'; ?>
+                                        <?php echo formatDate($date_of_birth); ?>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <strong>Hire Date:</strong><br>
-                                        <?php echo $driver['hire_date'] ? date('M d, Y', strtotime($driver['hire_date'])) : 'Not specified'; ?>
+                                        <?php echo formatDate($hire_date); ?>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <strong>Phone Number:</strong><br>
-                                        <?php echo $driver['phone_number'] ? htmlspecialchars($driver['phone_number']) : 'Not specified'; ?>
+                                        <?php echo $phone_number ? htmlspecialchars($phone_number) : 'Not specified'; ?>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <strong>Station:</strong><br>
-                                        <?php echo htmlspecialchars($driver['station_code'] . ' - ' . $driver['station_name']); ?>
+                                        <?php echo htmlspecialchars($station_code . ' - ' . $station_name); ?>
                                     </div>
-                                    <?php if ($driver['address']): ?>
+                                    <?php if ($address): ?>
                                     <div class="col-12 mb-3">
                                         <strong>Address:</strong><br>
-                                        <?php echo nl2br(htmlspecialchars($driver['address'])); ?>
+                                        <?php echo nl2br(htmlspecialchars($address)); ?>
                                     </div>
                                     <?php endif; ?>
+                                    
+                                    <!-- Salary Account - Visible to both Station Managers and Dispatchers -->
+                                    <?php if ($salary_account): ?>
+                                    <div class="col-12 mb-3">
+                                        <strong>Salary Account (IBAN):</strong>
+                                        <?php if ($user['user_type'] === 'dispatcher'): ?>
+                                            <small class="text-muted">(View Only)</small>
+                                        <?php endif; ?>
+                                        <br>
+                                        <span class="iban-display"><?php echo htmlspecialchars($salary_account); ?></span>
+                                        <div class="mt-1">
+                                            <small class="text-success">
+                                                <i class="fas fa-check-circle me-1"></i>
+                                                Valid IBAN for salary payments
+                                            </small>
+                                        </div>
+                                    </div>
+                                    <?php elseif ($user['user_type'] === 'station_manager'): ?>
+                                    <div class="col-12 mb-3">
+                                        <strong>Salary Account (IBAN):</strong><br>
+                                        <span class="text-muted">Not specified</span>
+                                        <div class="mt-1">
+                                            <small class="text-warning">
+                                                <i class="fas fa-exclamation-triangle me-1"></i>
+                                                Consider adding an IBAN for salary payments
+                                            </small>
+                                        </div>
+                                    </div>
+                                    <?php endif; ?>
+                                    
                                     <div class="col-md-6 mb-3">
                                         <strong>Added to System:</strong><br>
-                                        <small class="text-muted"><?php echo date('M d, Y \a\t g:i A', strtotime($driver['created_at'])); ?></small>
+                                        <small class="text-muted"><?php echo formatDateTime($created_at); ?></small>
                                     </div>
                                     <div class="col-md-6 mb-3">
                                         <strong>Last Updated:</strong><br>
-                                        <small class="text-muted"><?php echo date('M d, Y \a\t g:i A', strtotime($driver['updated_at'])); ?></small>
+                                        <small class="text-muted"><?php echo formatDateTime($updated_at); ?></small>
                                     </div>
                                 </div>
                             </div>
@@ -191,16 +311,18 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                                 <h5 class="mb-0">Vehicle Assignment</h5>
                             </div>
                             <div class="card-body">
-                                <?php if ($driver['van_license']): ?>
+                                <?php if ($van_info): ?>
                                     <div class="row align-items-center">
                                         <div class="col">
                                             <h6 class="mb-1">
                                                 <i class="fas fa-truck me-2 text-primary"></i>
-                                                <?php echo htmlspecialchars($driver['van_license']); ?>
+                                                <?php echo htmlspecialchars($van_info['license']); ?>
                                             </h6>
+                                            <?php if ($van_info['make_model']): ?>
                                             <p class="text-muted mb-0">
-                                                <?php echo htmlspecialchars($driver['van_make'] . ' ' . $driver['van_model']); ?>
+                                                <?php echo htmlspecialchars($van_info['make_model']); ?>
                                             </p>
+                                            <?php endif; ?>
                                         </div>
                                         <div class="col-auto">
                                             <span class="badge bg-primary fs-6">Currently Assigned</span>
@@ -225,7 +347,7 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                             </div>
                             <div class="card-body">
                                 <div class="d-grid gap-2">
-                                    <a href="edit_driver.php?id=<?php echo $driver['id']; ?>" class="btn btn-primary">
+                                    <a href="edit_driver.php?id=<?php echo $driver_db_id; ?>" class="btn btn-primary">
                                         <i class="fas fa-edit me-1"></i>Edit Driver
                                     </a>
                                     <button type="button" class="btn btn-warning" data-bs-toggle="modal" data-bs-target="#uploadDocModal">
@@ -257,14 +379,18 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                                     <div class="col-6 mb-3">
                                         <h4 class="text-success mb-0">
                                             <?php 
-                                            $service_days = $driver['hire_date'] ? floor((time() - strtotime($driver['hire_date'])) / (60 * 60 * 24)) : 0;
-                                            echo $service_days; 
+                                            $service_days = 0;
+                                            if ($hire_date && $hire_date !== '0000-00-00') {
+                                                $service_days = floor((time() - strtotime($hire_date)) / (60 * 60 * 24));
+                                            }
+                                            echo max(0, $service_days); 
                                             ?>
                                         </h4>
                                         <small class="text-muted">Days of Service</small>
                                     </div>
                                 </div>
-                                <?php if ($driver['van_license']): ?>
+                                
+                                <?php if ($van_info): ?>
                                 <div class="alert alert-success">
                                     <small>
                                         <i class="fas fa-check-circle me-1"></i>
@@ -276,6 +402,22 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                                     <small>
                                         <i class="fas fa-exclamation-triangle me-1"></i>
                                         No vehicle assigned
+                                    </small>
+                                </div>
+                                <?php endif; ?>
+                                
+                                <?php if ($salary_account): ?>
+                                <div class="alert alert-info">
+                                    <small>
+                                        <i class="fas fa-university me-1"></i>
+                                        Salary account configured
+                                    </small>
+                                </div>
+                                <?php elseif ($user['user_type'] === 'station_manager'): ?>
+                                <div class="alert alert-secondary">
+                                    <small>
+                                        <i class="fas fa-exclamation-circle me-1"></i>
+                                        No salary account set
                                     </small>
                                 </div>
                                 <?php endif; ?>
@@ -297,7 +439,7 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                 </div>
                 <form method="POST" enctype="multipart/form-data" action="upload_driver_documents.php">
                     <div class="modal-body">
-                        <input type="hidden" name="driver_id" value="<?php echo $driver['id']; ?>">
+                        <input type="hidden" name="driver_id" value="<?php echo $driver_db_id; ?>">
                         
                         <div class="mb-3">
                             <label for="document_type" class="form-label">Document Type</label>
@@ -334,7 +476,7 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Driver Documents - <?php echo htmlspecialchars($driver['driver_id']); ?></h5>
+                    <h5 class="modal-title">Driver Documents - <?php echo htmlspecialchars($driver_id_safe); ?></h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -346,25 +488,30 @@ $error_message = isset($_GET['error']) ? $_GET['error'] : '';
                                     <div class="d-flex align-items-center">
                                         <i class="fas fa-file-alt me-2 text-primary"></i>
                                         <div>
-                                            <strong><?php echo htmlspecialchars($document['document_type']); ?></strong>
+                                            <strong><?php echo htmlspecialchars(safeGet($document, 'document_type', 'Unknown Type')); ?></strong>
                                             <br>
-                                            <small class="text-muted"><?php echo htmlspecialchars($document['document_name']); ?></small>
+                                            <small class="text-muted"><?php echo htmlspecialchars(safeGet($document, 'document_name', 'Unknown Document')); ?></small>
                                             <br>
                                             <small class="text-muted">
-                                                Uploaded: <?php echo date('M d, Y \a\t g:i A', strtotime($document['created_at'])); ?>
+                                                Uploaded: <?php echo formatDateTime(safeGet($document, 'created_at')); ?>
                                             </small>
                                         </div>
                                     </div>
                                 </div>
                                 <div>
-                                    <a href="<?php echo htmlspecialchars($document['document_path']); ?>" 
+                                    <?php $doc_path = safeGet($document, 'document_path'); ?>
+                                    <?php if ($doc_path): ?>
+                                    <a href="<?php echo htmlspecialchars($doc_path); ?>" 
                                        class="btn btn-sm btn-primary" target="_blank">
                                         <i class="fas fa-eye me-1"></i>View
                                     </a>
-                                    <a href="<?php echo htmlspecialchars($document['document_path']); ?>" 
+                                    <a href="<?php echo htmlspecialchars($doc_path); ?>" 
                                        class="btn btn-sm btn-secondary" download>
                                         <i class="fas fa-download me-1"></i>Download
                                     </a>
+                                    <?php else: ?>
+                                    <span class="text-muted">File not available</span>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                             <?php endforeach; ?>

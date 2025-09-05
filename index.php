@@ -1,8 +1,19 @@
 <?php
 require_once 'config.php';
 
+// Redirect if already logged in
+if (isLoggedIn()) {
+    if (isDriverLoggedIn()) {
+        header('Location: driver_dashboard.php');
+        exit();
+    } else {
+        header('Location: dashboard.php');
+        exit();
+    }
+}
+
 $current_page = 'home';
-$page_title = 'Home - Van Fleet Management';
+$page_title = 'Login - Van Fleet Management';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -13,18 +24,34 @@ $page_title = 'Home - Van Fleet Management';
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        .hero-section {
+        body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 100px 0;
+            min-height: 100vh;
         }
-        .feature-card {
+        .login-card {
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
             border: none;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.9);
         }
-        .feature-card:hover {
+        .role-card {
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid transparent;
+            height: 100%;
+        }
+        .role-card:hover {
             transform: translateY(-5px);
+            border-color: #007bff;
+            box-shadow: 0 10px 20px rgba(0, 123, 255, 0.2);
+        }
+        .role-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        .hero-section {
+            padding: 50px 0;
         }
     </style>
 </head>
@@ -33,156 +60,65 @@ $page_title = 'Home - Van Fleet Management';
 
     <div class="hero-section">
         <div class="container">
-            <div class="row">
-                <div class="col-lg-8 mx-auto text-center">
-                    <h1 class="display-4 mb-4">Fleet & Driver Management System</h1>
-                    <p class="lead mb-4">Efficiently manage your van fleet operations and drivers with our comprehensive CMS dashboard.</p>
-                    <?php if (!isLoggedIn()): ?>
-                        <a href="login.php" class="btn btn-light btn-lg me-3">Get Started</a>
-                        <a href="about.php" class="btn btn-outline-light btn-lg">Learn More</a>
-                    <?php endif; ?>
+            <div class="row justify-content-center">
+                <div class="col-lg-8">
+                    <div class="card login-card">
+                        <div class="card-body p-5">
+                            <div class="text-center mb-5">
+                                <i class="fas fa-truck fa-4x text-primary mb-3"></i>
+                                <h2 class="display-6 mb-3">Fleet & Driver Management System</h2>
+                                <p class="lead text-muted">Choose your login type to access the system</p>
+                            </div>
+
+                            <div class="row g-4">
+                                <div class="col-md-6">
+                                    <div class="card role-card h-100" onclick="location.href='driver_login.php'">
+                                        <div class="card-body text-center p-4">
+                                            <i class="fas fa-user-tie role-icon text-success"></i>
+                                            <h4 class="card-title mb-3">Driver Login</h4>
+                                            <p class="card-text text-muted">
+                                                Access your driver dashboard using your Driver ID
+                                            </p>
+                                            <div class="mt-3">
+                                                <span class="badge bg-success fs-6 px-3 py-2">
+                                                    <i class="fas fa-id-card me-1"></i>
+                                                    Use Driver ID
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <div class="card role-card h-100" onclick="location.href='login.php'">
+                                        <div class="card-body text-center p-4">
+                                            <i class="fas fa-users-cog role-icon text-primary"></i>
+                                            <h4 class="card-title mb-3">Management Login</h4>
+                                            <p class="card-text text-muted">
+                                                Dispatcher or Station Manager access to fleet management tools
+                                            </p>
+                                            <div class="mt-3">
+                                                <span class="badge bg-primary fs-6 px-3 py-2">
+                                                    <i class="fas fa-key me-1"></i>
+                                                    Username & Password
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="text-center mt-4">
+                                <a href="about.php" class="btn btn-outline-secondary">
+                                    <i class="fas fa-info-circle me-1"></i>Learn More About Our System
+                                </a>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
-
-    <div class="container my-5">
-        <?php if (isLoggedIn()): ?>
-            <?php $user = getCurrentUser(); ?>
-            <div class="row">
-                <div class="col-12">
-                    <div class="alert alert-success">
-                        <h4>Welcome back, <?php echo htmlspecialchars($user['first_name']); ?>!</h4>
-                        <p class="mb-0">You are logged in as a <?php echo ucwords(str_replace('_', ' ', $user['user_type'])); ?>
-                        <?php if ($user['station_code']): ?>
-                            at station <?php echo htmlspecialchars($user['station_code']); ?>
-                        <?php endif; ?>
-                        </p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="row">
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-truck fa-3x text-primary mb-3"></i>
-                            <h5 class="card-title">My Fleet</h5>
-                            <p class="card-text">Manage your van fleet and track vehicle status.</p>
-                            <a href="fleet.php" class="btn btn-primary">View Fleet</a>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-tools fa-3x text-warning mb-3"></i>
-                            <h5 class="card-title">Van Maintenance</h5>
-                            <p class="card-text">Track and manage vehicle maintenance records.</p>
-                            <a href="maintenance.php" class="btn btn-warning">View Maintenance</a>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-users fa-3x text-success mb-3"></i>
-                            <h5 class="card-title">My Drivers</h5>
-                            <p class="card-text">Manage driver assignments and information.</p>
-                            <a href="drivers.php" class="btn btn-success">View Drivers</a>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-calendar-alt fa-3x text-danger mb-3"></i>
-                            <h5 class="card-title">Manage Leaves</h5>
-                            <p class="card-text">Track and manage driver paid and sick leaves.</p>
-                            <a href="manage_leaves.php" class="btn btn-danger">Manage Leaves</a>
-                        </div>
-                    </div>
-                </div>
-                
-                <?php if ($user['user_type'] === 'station_manager'): ?>
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-building fa-3x text-info mb-3"></i>
-                            <h5 class="card-title">Manage Stations</h5>
-                            <p class="card-text">Create and manage stations across your network.</p>
-                            <a href="stations.php" class="btn btn-info">Manage Stations</a>
-                        </div>
-                    </div>
-                </div>
-                <?php endif; ?>
-            </div>
-            
-        <?php else: ?>
-            <div class="row">
-                <div class="col-lg-8 mx-auto">
-                    <h2 class="text-center mb-5">Key Features</h2>
-                </div>
-            </div>
-            
-            <div class="row">
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-truck fa-3x text-primary mb-3"></i>
-                            <h5 class="card-title">Fleet Management</h5>
-                            <p class="card-text">Track and manage your entire van fleet with real-time status updates.</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-users fa-3x text-success mb-3"></i>
-                            <h5 class="card-title">Driver Management</h5>
-                            <p class="card-text">Assign drivers to vehicles and manage driver information efficiently.</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-tools fa-3x text-warning mb-3"></i>
-                            <h5 class="card-title">Maintenance Tracking</h5>
-                            <p class="card-text">Keep detailed maintenance records for all vehicles in your fleet.</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-calendar-alt fa-3x text-danger mb-3"></i>
-                            <h5 class="card-title">Leave Management</h5>
-                            <p class="card-text">Track paid and sick leaves for all drivers with calendar view.</p>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="col-md-4 mb-4">
-                    <div class="card feature-card h-100">
-                        <div class="card-body text-center">
-                            <i class="fas fa-building fa-3x text-info mb-3"></i>
-                            <h5 class="card-title">Multi-Station Support</h5>
-                            <p class="card-text">Manage multiple stations with role-based access control.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        <?php endif; ?>
-    </div>
-
-    <?php include 'includes/footer.php'; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
