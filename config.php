@@ -60,28 +60,20 @@ define('MAX_FILE_SIZE', 50 * 1024 * 1024); // 50MB for videos
 define('MAX_IMAGE_SIZE', 5 * 1024 * 1024); // 5MB for images
 
 // Create upload directories if they don't exist
-if (!file_exists(UPLOAD_DIR)) {
-    mkdir(UPLOAD_DIR, 0777, true);
-}
-if (!file_exists(UPLOAD_DIR . 'vans/')) {
-    mkdir(UPLOAD_DIR . 'vans/', 0777, true);
-}
-if (!file_exists(UPLOAD_DIR . 'vans/images/')) {
-    mkdir(UPLOAD_DIR . 'vans/images/', 0777, true);
-}
-if (!file_exists(UPLOAD_DIR . 'vans/videos/')) {
-    mkdir(UPLOAD_DIR . 'vans/videos/', 0777, true);
-}
-if (!file_exists(UPLOAD_DIR . 'vans/documents/')) {
-    mkdir(UPLOAD_DIR . 'vans/documents/', 0777, true);
-}
-if (!file_exists(UPLOAD_DIR . 'drivers/')) {
-    mkdir(UPLOAD_DIR . 'drivers/', 0777, true);
-}
-if (!file_exists(UPLOAD_DIR . 'drivers/pictures/')) {
-    mkdir(UPLOAD_DIR . 'drivers/pictures/', 0777, true);
-}
-if (!file_exists(UPLOAD_DIR . 'drivers/documents/')) {
-    mkdir(UPLOAD_DIR . 'drivers/documents/', 0777, true);
+$directories = [
+    UPLOAD_DIR,
+    UPLOAD_DIR . 'vans/',
+    UPLOAD_DIR . 'vans/images/',
+    UPLOAD_DIR . 'vans/videos/',
+    UPLOAD_DIR . 'vans/documents/',
+    UPLOAD_DIR . 'drivers/',
+    UPLOAD_DIR . 'drivers/pictures/',
+    UPLOAD_DIR . 'drivers/documents/'
+];
+
+foreach ($directories as $dir) {
+    if (!file_exists($dir)) {
+        mkdir($dir, 0777, true);
+    }
 }
 ?>

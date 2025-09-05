@@ -95,11 +95,20 @@ $page_title = 'Home - Van Fleet Management';
                         </div>
                     </div>
                 </div>
-            </div>
-            
-            <?php if ($user['user_type'] === 'station_manager'): ?>
-            <div class="row">
-                <div class="col-md-6 mx-auto mb-4">
+                
+                <div class="col-md-4 mb-4">
+                    <div class="card feature-card h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-calendar-alt fa-3x text-danger mb-3"></i>
+                            <h5 class="card-title">Manage Leaves</h5>
+                            <p class="card-text">Track and manage driver paid and sick leaves.</p>
+                            <a href="manage_leaves.php" class="btn btn-danger">Manage Leaves</a>
+                        </div>
+                    </div>
+                </div>
+                
+                <?php if ($user['user_type'] === 'station_manager'): ?>
+                <div class="col-md-4 mb-4">
                     <div class="card feature-card h-100">
                         <div class="card-body text-center">
                             <i class="fas fa-building fa-3x text-info mb-3"></i>
@@ -109,8 +118,8 @@ $page_title = 'Home - Van Fleet Management';
                         </div>
                     </div>
                 </div>
+                <?php endif; ?>
             </div>
-            <?php endif; ?>
             
         <?php else: ?>
             <div class="row">
@@ -146,6 +155,26 @@ $page_title = 'Home - Van Fleet Management';
                             <i class="fas fa-tools fa-3x text-warning mb-3"></i>
                             <h5 class="card-title">Maintenance Tracking</h5>
                             <p class="card-text">Keep detailed maintenance records for all vehicles in your fleet.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4 mb-4">
+                    <div class="card feature-card h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-calendar-alt fa-3x text-danger mb-3"></i>
+                            <h5 class="card-title">Leave Management</h5>
+                            <p class="card-text">Track paid and sick leaves for all drivers with calendar view.</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-md-4 mb-4">
+                    <div class="card feature-card h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-building fa-3x text-info mb-3"></i>
+                            <h5 class="card-title">Multi-Station Support</h5>
+                            <p class="card-text">Manage multiple stations with role-based access control.</p>
                         </div>
                     </div>
                 </div>

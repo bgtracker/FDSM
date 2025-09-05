@@ -39,6 +39,12 @@ $user = getCurrentUser();
                         </a>
                     </li>
                     
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($current_page === 'leaves') ? 'active' : ''; ?>" href="manage_leaves.php">
+                            <i class="fas fa-calendar-alt me-1"></i>Manage Leaves
+                        </a>
+                    </li>
+                    
                     <?php if ($user && $user['user_type'] === 'station_manager'): ?>
                         <li class="nav-item">
                             <a class="nav-link <?php echo ($current_page === 'stations') ? 'active' : ''; ?>" href="stations.php">

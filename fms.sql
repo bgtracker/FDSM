@@ -109,6 +109,25 @@ CREATE TABLE van_maintenance (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Driver leaves table
+CREATE TABLE driver_leaves (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    driver_id INT NOT NULL,
+    station_id INT NOT NULL,
+    leave_type ENUM('paid', 'sick') NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    reason TEXT,
+    created_by INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE,
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id),
+    INDEX idx_dates (start_date, end_date),
+    INDEX idx_station_date (station_id, start_date, end_date)
+);
+
 -- Insert initial stations
 INSERT INTO stations (station_code, station_name) VALUES
 ('DRP4', 'DRP4 Station'),
