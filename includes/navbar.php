@@ -24,7 +24,6 @@ $current_user = $user ?: $driver;
                     </li>
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($current_page === 'about') ? 'active' : ''; ?>" href="about.php">
-                            <i class="fas fa-info-circle me-1"></i>About
                         </a>
                     </li>
                 <?php elseif (isDriverLoggedIn()): ?>
