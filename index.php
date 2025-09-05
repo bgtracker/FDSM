@@ -108,11 +108,7 @@ $page_title = 'Login - Van Fleet Management';
                                 </div>
                             </div>
 
-                            <div class="text-center mt-4">
-                                <a href="about.php" class="btn btn-outline-secondary">
-                                    <i class="fas fa-info-circle me-1"></i>Learn More About Our System
-                                </a>
-                            </div>
+                            
                         </div>
                     </div>
                 </div>

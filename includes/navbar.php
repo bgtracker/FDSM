@@ -22,22 +22,12 @@ $current_user = $user ?: $driver;
                             <i class="fas fa-home me-1"></i>Home
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link <?php echo ($current_page === 'about') ? 'active' : ''; ?>" href="about.php">
-                        </a>
-                    </li>
                 <?php elseif (isDriverLoggedIn()): ?>
                     <!-- Driver Menu -->
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($current_page === 'dashboard') ? 'active' : ''; ?>" href="driver_dashboard.php">
                             <i class="fas fa-tachometer-alt me-1"></i>Dashboard
                         </a>
-                    </li>
-                    <li class="nav-item">
-                        <span class="navbar-text me-3">
-                            <i class="fas fa-user-tie me-1"></i>
-                            <?php echo htmlspecialchars($driver['first_name'] . ' (' . $driver['driver_id'] . ')'); ?>
-                        </span>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="logout.php">
@@ -90,14 +80,7 @@ $current_user = $user ?: $driver;
                         </a>
                     </li>
                 <?php endif; ?>
-                
-                <?php if (!isLoggedIn()): ?>
-                <li class="nav-item">
-                    <a class="nav-link <?php echo ($current_page === 'about') ? 'active' : ''; ?>" href="about.php">
-                        <i class="fas fa-info-circle me-1"></i>About
-                    </a>
-                </li>
-                <?php endif; ?>
+
             </ul>
         </div>
     </div>
