@@ -1,5 +1,5 @@
 <?php
-// Fleet & Driver Management System (FDMS) Installation Script
+// Fleet & Driver Management System (FDMS) Installation Script with Activation
 // Run this file once to set up the system
 
 $step = isset($_GET['step']) ? intval($_GET['step']) : 1;
@@ -13,7 +13,10 @@ if ($step === 1) {
         'PDO Extension' => extension_loaded('pdo'),
         'PDO MySQL Extension' => extension_loaded('pdo_mysql'),
         'GD Extension (for image handling)' => extension_loaded('gd'),
+        'OpenSSL Extension (for encryption)' => extension_loaded('openssl'),
+        'cURL Extension (for activation)' => extension_loaded('curl'),
         'File Uploads Enabled' => ini_get('file_uploads'),
+        'allow_url_fopen Enabled' => ini_get('allow_url_fopen'),
         'Uploads Directory Writable' => is_writable('.') || mkdir('uploads', 0777, true)
     ];
 }
@@ -34,7 +37,7 @@ if ($step === 2 && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->exec("CREATE DATABASE IF NOT EXISTS `$db_name`");
         $pdo->exec("USE `$db_name`");
         
-        // Create config file
+        // Create config file with activation functions
         $config_content = "<?php
 // Database configuration
 define('DB_HOST', '$db_host');
@@ -112,11 +115,146 @@ function hasPermission(\$required_role = null) {
     return true;
 }
 
+// System activation functions
+function isSystemActivated() {
+    global \$pdo;
+    try {
+        \$stmt = \$pdo->query(\"SELECT COUNT(*) FROM system_activation WHERE status = 'active'\");
+        return \$stmt->fetchColumn() > 0;
+    } catch (PDOException \$e) {
+        return false;
+    }
+}
+
+function getActivationInfo() {
+    global \$pdo;
+    try {
+        \$stmt = \$pdo->query(\"SELECT * FROM system_activation WHERE status = 'active' ORDER BY activated_at DESC LIMIT 1\");
+        return \$stmt->fetch();
+    } catch (PDOException \$e) {
+        return null;
+    }
+}
+
+function validateProductKey(\$key) {
+    \$key = strtoupper(trim(\$key));
+    
+    // Validate format (6 segments of 4 characters each)
+    if (!preg_match('/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}\$/', \$key)) {
+        return ['status' => 'error', 'message' => 'Invalid product key format'];
+    }
+    
+    // Check if key is already used locally
+    global \$pdo;
+    try {
+        \$stmt = \$pdo->prepare(\"SELECT * FROM system_activation WHERE product_key = ?\");
+        \$stmt->execute([\$key]);
+        if (\$stmt->fetch()) {
+            return ['status' => 'error', 'message' => 'This product key has already been used'];
+        }
+    } catch (PDOException \$e) {
+        return ['status' => 'error', 'message' => 'Database error during validation'];
+    }
+    
+    // Validate with remote server
+    \$postData = json_encode([
+        'key' => \$key,
+        'action' => 'validate'
+    ]);
+    
+    \$context = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => 'Content-Type: application/json',
+            'content' => \$postData,
+            'timeout' => 30
+        ]
+    ]);
+    
+    \$response = @file_get_contents('https://fdms-cms.de/activation.php', false, \$context);
+    
+    if (\$response === false) {
+        // Try cURL fallback
+        if (function_exists('curl_init')) {
+            \$ch = curl_init();
+            curl_setopt(\$ch, CURLOPT_URL, 'https://fdms-cms.de/activation.php');
+            curl_setopt(\$ch, CURLOPT_POST, true);
+            curl_setopt(\$ch, CURLOPT_POSTFIELDS, \$postData);
+            curl_setopt(\$ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt(\$ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt(\$ch, CURLOPT_TIMEOUT, 30);
+            curl_setopt(\$ch, CURLOPT_SSL_VERIFYPEER, true);
+            
+            \$response = curl_exec(\$ch);
+            \$curl_error = curl_error(\$ch);
+            curl_close(\$ch);
+            
+            if (\$response === false) {
+                return ['status' => 'error', 'message' => 'Unable to connect to activation server: ' . \$curl_error];
+            }
+        } else {
+            return ['status' => 'error', 'message' => 'Unable to connect to activation server. Please check your internet connection.'];
+        }
+    }
+    
+    \$result = json_decode(\$response, true);
+    
+    if (!\$result) {
+        return ['status' => 'error', 'message' => 'Invalid response from activation server'];
+    }
+    
+    return \$result;
+}
+
+function activateSystem(\$key, \$user_id) {
+    global \$pdo;
+    
+    \$validation = validateProductKey(\$key);
+    if (\$validation['status'] !== 'success') {
+        return \$validation;
+    }
+    
+    try {
+        // Store activation in database
+        \$system_info = json_encode([
+            'server_name' => \$_SERVER['SERVER_NAME'] ?? 'unknown',
+            'user_agent' => \$_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+            'ip_address' => \$_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            'php_version' => PHP_VERSION,
+            'activation_time' => date('Y-m-d H:i:s'),
+            'installed_via' => 'installer'
+        ]);
+        
+        \$stmt = \$pdo->prepare(\"INSERT INTO system_activation (product_key, activated_by, system_info) VALUES (?, ?, ?)\");
+        \$stmt->execute([\$key, \$user_id, \$system_info]);
+        
+        return ['status' => 'success', 'message' => 'System activated successfully!'];
+    } catch (PDOException \$e) {
+        return ['status' => 'error', 'message' => 'Database error during activation'];
+    }
+}
+
 // Redirect if not logged in (for management users)
 function requireLogin() {
     if (!isLoggedIn()) {
         header('Location: index.php');
         exit();
+    }
+    
+    // Check system activation
+    if (!isSystemActivated()) {
+        \$user = getCurrentUser();
+        if (\$user && \$user['user_type'] === 'station_manager') {
+            // Station managers can access activation page
+            if (basename(\$_SERVER['PHP_SELF']) !== 'activate.php') {
+                header('Location: activate.php');
+                exit();
+            }
+        } else {
+            // Other users get blocked
+            header('Location: activation_required.php');
+            exit();
+        }
     }
     
     // If a driver tries to access management pages, redirect them
@@ -130,6 +268,12 @@ function requireLogin() {
 function requireDriverLogin() {
     if (!isLoggedIn() || !isDriverLoggedIn()) {
         header('Location: index.php');
+        exit();
+    }
+    
+    // Check system activation for drivers
+    if (!isSystemActivated()) {
+        header('Location: activation_required.php');
         exit();
     }
 }
@@ -172,9 +316,9 @@ if ($step === 3 && isset($_GET['install_db'])) {
     require_once 'config.php';
     
     try {
-        // Read and execute SQL schema
+        // Read and execute SQL schema (including system_activation table)
         $sql = "
-        CREATE TABLE IF NOT EXISTS users (
+        CREATE TABLE users (
             id INT AUTO_INCREMENT PRIMARY KEY,
             username VARCHAR(50) UNIQUE NOT NULL,
             password VARCHAR(255) NOT NULL,
@@ -187,7 +331,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS stations (
+        -- Stations table
+        CREATE TABLE stations (
             id INT AUTO_INCREMENT PRIMARY KEY,
             station_code VARCHAR(10) UNIQUE NOT NULL,
             station_name VARCHAR(100) NOT NULL,
@@ -195,7 +340,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS vans (
+        -- Vans table
+        CREATE TABLE vans (
             id INT AUTO_INCREMENT PRIMARY KEY,
             license_plate VARCHAR(20) UNIQUE NOT NULL,
             vin_number VARCHAR(17) UNIQUE NOT NULL,
@@ -208,7 +354,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS van_images (
+        -- Van images table
+        CREATE TABLE van_images (
             id INT AUTO_INCREMENT PRIMARY KEY,
             van_id INT NOT NULL,
             image_path VARCHAR(255) NOT NULL,
@@ -216,7 +363,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             FOREIGN KEY (van_id) REFERENCES vans(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS van_videos (
+        -- Van videos table
+        CREATE TABLE van_videos (
             id INT AUTO_INCREMENT PRIMARY KEY,
             van_id INT NOT NULL,
             video_path VARCHAR(255) NOT NULL,
@@ -224,7 +372,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             FOREIGN KEY (van_id) REFERENCES vans(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS van_documents (
+        -- Van documents table (registration documents)
+        CREATE TABLE van_documents (
             id INT AUTO_INCREMENT PRIMARY KEY,
             van_id INT NOT NULL,
             document_path VARCHAR(255) NOT NULL,
@@ -233,7 +382,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             FOREIGN KEY (van_id) REFERENCES vans(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS drivers (
+        -- Drivers table
+        CREATE TABLE drivers (
             id INT AUTO_INCREMENT PRIMARY KEY,
             driver_id VARCHAR(30) NOT NULL,
             first_name VARCHAR(100) NOT NULL,
@@ -242,7 +392,6 @@ if ($step === 3 && isset($_GET['install_db'])) {
             date_of_birth DATE,
             phone_number VARCHAR(20),
             address TEXT,
-            salary_account VARCHAR(34) NULL,
             hire_date DATE,
             profile_picture VARCHAR(255),
             station_id INT NOT NULL,
@@ -253,7 +402,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             FOREIGN KEY (van_id) REFERENCES vans(id) ON DELETE SET NULL
         );
 
-        CREATE TABLE IF NOT EXISTS driver_documents (
+        -- Driver documents table
+        CREATE TABLE driver_documents (
             id INT AUTO_INCREMENT PRIMARY KEY,
             driver_id INT NOT NULL,
             document_type VARCHAR(50) NOT NULL,
@@ -263,7 +413,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS van_maintenance (
+        -- Van maintenance records table
+        CREATE TABLE van_maintenance (
             id INT AUTO_INCREMENT PRIMARY KEY,
             van_id INT NOT NULL,
             user_id INT NOT NULL,
@@ -273,7 +424,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS driver_leaves (
+        -- Driver leaves table
+        CREATE TABLE driver_leaves (
             id INT AUTO_INCREMENT PRIMARY KEY,
             driver_id INT NOT NULL,
             station_id INT NOT NULL,
@@ -291,6 +443,16 @@ if ($step === 3 && isset($_GET['install_db'])) {
             INDEX idx_station_date (station_id, start_date, end_date)
         );
 
+        -- Add salary_account field to drivers table
+        ALTER TABLE drivers ADD COLUMN salary_account VARCHAR(34) NULL AFTER address;
+
+        -- Add index for salary_account if needed for searches
+        CREATE INDEX idx_salary_account ON drivers(salary_account);
+
+        -- Working Hours Database Schema
+        -- Add this to your existing database
+
+        -- Working hours submissions table
         CREATE TABLE IF NOT EXISTS working_hours (
             id INT AUTO_INCREMENT PRIMARY KEY,
             driver_id INT NOT NULL,
@@ -339,6 +501,7 @@ if ($step === 3 && isset($_GET['install_db'])) {
             UNIQUE KEY unique_driver_date (driver_id, work_date)
         );
 
+        -- Working hours edits log (to track changes made by management)
         CREATE TABLE IF NOT EXISTS working_hours_edits (
             id INT AUTO_INCREMENT PRIMARY KEY,
             working_hours_id INT NOT NULL,
@@ -380,11 +543,6 @@ if ($step === 3 && isset($_GET['install_db'])) {
             ('DHE6', 'DHE6 Station'),
             ('DBW1', 'DBW1 Station')");
         
-        $password_hash = password_hash('Amazon2018!', PASSWORD_DEFAULT);
-        $pdo->prepare("INSERT IGNORE INTO users (username, password, first_name, middle_name, last_name, user_type, station_id) VALUES
-            ('pnozharov', ?, 'Pavel', 'Boitchev', 'Nozharov', 'station_manager', 1),
-            ('vmarkov', ?, 'Vasko', 'Kalinov', 'Markov', 'dispatcher', 1)")->execute([$password_hash, $password_hash]);
-        
         // Add foreign key constraint for users table
         try {
             $pdo->exec("ALTER TABLE users ADD FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE SET NULL");
@@ -393,11 +551,51 @@ if ($step === 3 && isset($_GET['install_db'])) {
         }
         
         $step = 4;
-        $message = 'Database tables created successfully! Initial data inserted.';
+        $message = 'Database tables created successfully! System ready for activation.';
         
     } catch (Exception $e) {
         $error = 'Error creating database tables: ' . $e->getMessage();
     }
+}
+
+// Step 4: System Activation
+if ($step === 4 && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['activate_system'])) {
+    require_once 'config.php';
+    
+    $product_key = strtoupper(trim($_POST['product_key']));
+    
+    if (empty($product_key)) {
+        $error = 'Please enter a product key.';
+    } else {
+        // Use the station manager ID from the inserted user
+        $stmt = $pdo->query("SELECT id FROM users WHERE user_type = 'station_manager' LIMIT 1");
+        $station_manager = $stmt->fetch();
+        
+        if ($station_manager) {
+            $result = activateSystem($product_key, $station_manager['id']);
+            
+            if ($result['status'] === 'success') {
+                $step = 5;
+                $message = 'System activated successfully! Installation complete.';
+            } else {
+                $error = $result['message'];
+            }
+        } else {
+            $error = 'No station manager found for activation.';
+        }
+    }
+}
+
+// Step 5: Complete installation
+if ($step === 5 && isset($_GET['finish'])) {
+    // Delete install.php file
+    if (file_exists(__FILE__)) {
+        unlink(__FILE__);
+    }
+    
+    // Redirect to index.php
+    header('Location: index.php?installed=1');
+    exit();
 }
 ?>
 <!DOCTYPE html>
@@ -427,6 +625,8 @@ if ($step === 3 && isset($_GET['install_db'])) {
             border-radius: 20px; 
             backdrop-filter: blur(10px);
             background: rgba(255, 255, 255, 0.95);
+            max-width: 800px;
+            width: 100%;
         }
         .logo-section {
             background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
@@ -447,542 +647,289 @@ if ($step === 3 && isset($_GET['install_db'])) {
             display: flex;
             justify-content: space-between;
             margin-bottom: 2rem;
+            position: relative;
+        }
+        .step-indicator::before {
+            content: '';
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            height: 4px;
+            background: #e9ecef;
+            z-index: 0;
         }
         .step {
             flex: 1;
             text-align: center;
             position: relative;
-        }
-        .step:not(:last-child)::after {
-            content: '';
-            position: absolute;
-            top: 25px;
-            right: -50%;
-            width: 100%;
-            height: 2px;
-            background: #dee2e6;
-            z-index: 0;
-        }
-        .step.active:not(:last-child)::after,
-        .step.completed:not(:last-child)::after {
-            background: #28a745;
+            z-index: 1;
         }
         .step-circle {
-            width: 50px;
-            height: 50px;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
-            display: inline-flex;
+            background: #e9ecef;
+            color: #6c757d;
+            display: flex;
             align-items: center;
             justify-content: center;
-            background: #dee2e6;
-            color: #6c757d;
+            margin: 0 auto 0.5rem;
             font-weight: bold;
-            position: relative;
-            z-index: 1;
-            transition: all 0.3s ease;
+            border: 3px solid #fff;
         }
         .step.active .step-circle {
-            background: #007bff;
-            color: white;
-            transform: scale(1.1);
-        }
-        .step.completed .step-circle {
             background: #28a745;
             color: white;
         }
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1.5rem;
-            margin: 2rem 0;
+        .step.completed .step-circle {
+            background: #20c997;
+            color: white;
         }
-        .feature-card {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 15px;
-            padding: 1.5rem;
+        .btn-custom {
+            border-radius: 50px;
+            padding: 12px 30px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+        }
+        .btn-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+        }
+        .key-input {
+            font-family: 'Courier New', monospace;
+            font-size: 1.2em;
             text-align: center;
-            border: none;
-            transition: transform 0.3s ease;
-            color: #212529 !important;
+            letter-spacing: 2px;
         }
-        .feature-card h5, .feature-card p, .feature-card small, .feature-card strong, .feature-card div {
-            color: #212529 !important;
-        }
-        .feature-card .text-muted {
-            color: #6c757d !important;
-        }
-        .feature-card:hover {
-            transform: translateY(-5px);
-        }
-        .feature-icon {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-        }
-        .system-showcase {
-            background: linear-gradient(135deg, #343a40 0%, #495057 100%);
+        .activation-section {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
             color: white;
             border-radius: 15px;
             padding: 2rem;
             margin: 2rem 0;
         }
-        .role-section {
-            background: white;
-            border-radius: 15px;
-            padding: 1.5rem;
-            margin: 1rem 0;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        }
-        .role-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-        .role-icon {
-            font-size: 2rem;
-            margin-right: 1rem;
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-        }
-        .management-icon {
-            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-        }
-        .driver-icon {
-            background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
-        }
-        .requirement-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.75rem 1rem;
-            margin-bottom: 0.5rem;
-            background: #f8f9fa;
-            border-radius: 10px;
-            border-left: 4px solid transparent;
-        }
-        .requirement-item.success {
-            border-left-color: #28a745;
-            background: #d4edda;
-        }
-        .requirement-item.danger {
-            border-left-color: #dc3545;
-            background: #f8d7da;
-        }
-        .btn-custom {
-            border-radius: 50px;
-            padding: 0.75rem 2rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            transition: all 0.3s ease;
-        }
-        .btn-custom:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-        }
-        .success-animation {
-            animation: slideInUp 0.6s ease-out;
-        }
-        @keyframes slideInUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
     </style>
 </head>
 <body>
     <div class="install-container">
-        <div class="container">
-            <div class="row justify-content-center">
-                <div class="col-xl-10">
-                    <div class="card install-card">
-                        <!-- Logo Section -->
-                        <div class="logo-section">
-                            <i class="fas fa-truck logo-icon"></i>
-                            <h1 class="display-5 mb-2">FDMS</h1>
-                            <h4 class="mb-3">Fleet & Driver Management System</h4>
-                            <p class="lead mb-0">Professional fleet management solution with comprehensive working hours tracking</p>
-                        </div>
-
-                        <div class="card-body p-5">
-                            <!-- Progress Indicator -->
-                            <div class="step-indicator">
-                                <div class="step <?php echo $step >= 1 ? ($step > 1 ? 'completed' : 'active') : ''; ?>">
-                                    <div class="step-circle">
-                                        <?php if ($step > 1): ?>
-                                            <i class="fas fa-check"></i>
-                                        <?php else: ?>
-                                            1
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="mt-2"><small>Requirements</small></div>
-                                </div>
-                                <div class="step <?php echo $step >= 2 ? ($step > 2 ? 'completed' : 'active') : ''; ?>">
-                                    <div class="step-circle">
-                                        <?php if ($step > 2): ?>
-                                            <i class="fas fa-check"></i>
-                                        <?php else: ?>
-                                            2
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="mt-2"><small>Database</small></div>
-                                </div>
-                                <div class="step <?php echo $step >= 3 ? ($step > 3 ? 'completed' : 'active') : ''; ?>">
-                                    <div class="step-circle">
-                                        <?php if ($step > 3): ?>
-                                            <i class="fas fa-check"></i>
-                                        <?php else: ?>
-                                            3
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="mt-2"><small>Installation</small></div>
-                                </div>
-                                <div class="step <?php echo $step >= 4 ? 'active' : ''; ?>">
-                                    <div class="step-circle">
-                                        <?php if ($step >= 4): ?>
-                                            <i class="fas fa-check"></i>
-                                        <?php else: ?>
-                                            4
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="mt-2"><small>Complete</small></div>
-                                </div>
-                            </div>
-
-                            <?php if ($error): ?>
-                                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                                    <i class="fas fa-exclamation-triangle me-2"></i>
-                                    <strong>Error:</strong> <?php echo htmlspecialchars($error); ?>
-                                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                                </div>
-                            <?php endif; ?>
-
-                            <?php if ($message): ?>
-                                <div class="alert alert-success alert-dismissible fade show" role="alert">
-                                    <i class="fas fa-check-circle me-2"></i>
-                                    <strong>Success:</strong> <?php echo htmlspecialchars($message); ?>
-                                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                                </div>
-                            <?php endif; ?>
-
-                            <?php if ($step === 1): ?>
-                                <!-- Welcome & System Overview -->
-                                <div class="text-center mb-5">
-                                    <h2 class="mb-4">Welcome to FDMS Installation</h2>
-                                    <p class="lead text-muted">Let's set up your comprehensive fleet and driver management solution with working hours tracking</p>
-                                </div>
-
-                                <!-- System Features Overview -->
-                                <div class="system-showcase mb-4">
-                                    <h3 class="text-center mb-4">
-                                        <i class="fas fa-star me-2"></i>
-                                        System Features Overview
-                                    </h3>
-                                    
-                                    <div class="row">
-                                        <div class="col-md-6 mb-4">
-                                            <div class="role-section">
-                                                <div class="role-header">
-                                                    <div class="role-icon management-icon">
-                                                        <i class="fas fa-users-cog"></i>
-                                                    </div>
-                                                    <div>
-                                                        <h5 class="mb-1 text-muted">Management Portal</h5>
-                                                        <small class="text-muted">Station Managers & Dispatchers</small>
-                                                    </div>
-                                                </div>
-                                                <ul class="list-unstyled mb-0 text-muted">
-                                                    <li><i class="fas fa-check text-success me-2"></i>Complete fleet management</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Driver assignment & tracking</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Vehicle maintenance records</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Leave management system</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i><strong>Working hours approval</strong></li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Multi-station support</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Document management</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Role-based permissions</li>
-                                                </ul>
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="col-md-6 mb-4">
-                                            <div class="role-section">
-                                                <div class="role-header">
-                                                    <div class="role-icon driver-icon">
-                                                        <i class="fas fa-user-tie"></i>
-                                                    </div>
-                                                    <div>
-                                                        <h5 class="mb-1 text-muted">Driver Portal</h5>
-                                                        <small class="text-muted">Self-Service Dashboard</small>
-                                                    </div>
-                                                </div>
-                                                <ul class="list-unstyled mb-0 text-muted">
-                                                    <li><i class="fas fa-check text-success me-2"></i>Personal dashboard</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Assigned vehicle info</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i><strong>Daily hours submission</strong></li>
-                                                    <li><i class="fas fa-check text-success me-2"></i><strong>Monthly statistics tracking</strong></li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Document upload</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Profile management</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Simple ID-based login</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Mobile-friendly design</li>
-                                                </ul>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Technical Features -->
-                                <div class="feature-grid">
-                                    <div class="feature-card">
-                                        <i class="fas fa-clock feature-icon text-primary"></i>
-                                        <h5>Working Hours Tracking</h5>
-                                        <p class="text-muted mb-0">Comprehensive time tracking with automated calculations and approval workflows</p>
-                                    </div>
-                                    <div class="feature-card">
-                                        <i class="fas fa-shield-alt feature-icon text-success"></i>
-                                        <h5>Secure & Reliable</h5>
-                                        <p class="text-muted mb-0">Role-based access control, secure file uploads, and comprehensive validation</p>
-                                    </div>
-                                    <div class="feature-card">
-                                        <i class="fas fa-mobile-alt feature-icon text-warning"></i>
-                                        <h5>Mobile Responsive</h5>
-                                        <p class="text-muted mb-0">Works perfectly on desktop, tablet, and mobile devices</p>
-                                    </div>
-                                    <div class="feature-card">
-                                        <i class="fas fa-chart-line feature-icon text-info"></i>
-                                        <h5>Analytics Ready</h5>
-                                        <p class="text-muted mb-0">Built-in reporting, statistics, and calendar-based management</p>
-                                    </div>
-                                </div>
-
-                                <!-- System Requirements -->
-                                <h3 class="mb-4">
-                                    <i class="fas fa-server me-2"></i>
-                                    System Requirements Check
-                                </h3>
-                                
-                                <div class="requirements-container">
-                                    <?php foreach ($requirements as $requirement => $met): ?>
-                                    <div class="requirement-item <?php echo $met ? 'success' : 'danger'; ?>">
-                                        <span>
-                                            <i class="fas fa-<?php echo $met ? 'check-circle text-success' : 'times-circle text-danger'; ?> me-2"></i>
-                                            <?php echo $requirement; ?>
-                                        </span>
-                                        <span class="badge bg-<?php echo $met ? 'success' : 'danger'; ?>">
-                                            <?php echo $met ? 'OK' : 'Failed'; ?>
-                                        </span>
-                                    </div>
-                                    <?php endforeach; ?>
-                                </div>
-                                
-                                <div class="text-center mt-4">
-                                    <?php if (array_product($requirements)): ?>
-                                        <a href="?step=2" class="btn btn-primary btn-lg btn-custom">
-                                            <i class="fas fa-arrow-right me-2"></i>
-                                            Continue to Database Setup
-                                        </a>
-                                        <p class="text-success mt-3">
-                                            <i class="fas fa-check-circle me-1"></i>
-                                            All requirements met! Ready to proceed.
-                                        </p>
-                                    <?php else: ?>
-                                        <div class="alert alert-warning">
-                                            <h5><i class="fas fa-exclamation-triangle me-2"></i>Requirements Not Met</h5>
-                                            <p class="mb-0">Some requirements are not satisfied. Please contact your hosting provider or system administrator to resolve these issues before proceeding.</p>
-                                        </div>
-                                    <?php endif; ?>
-                                </div>
-
-                            <?php elseif ($step === 2): ?>
-                                <div class="text-center mb-4">
-                                    <h2><i class="fas fa-database me-2"></i>Database Configuration</h2>
-                                    <p class="text-muted">Configure your database connection settings</p>
-                                </div>
-                                
-                                <form method="POST" class="row g-4">
-                                    <div class="col-md-6">
-                                        <label for="db_host" class="form-label">
-                                            <i class="fas fa-server me-1"></i>Database Host
-                                        </label>
-                                        <input type="text" class="form-control form-control-lg" id="db_host" name="db_host" value="localhost" required>
-                                        <div class="form-text">Usually 'localhost' for most hosting providers</div>
-                                    </div>
-                                    
-                                    <div class="col-md-6">
-                                        <label for="db_name" class="form-label">
-                                            <i class="fas fa-database me-1"></i>Database Name
-                                        </label>
-                                        <input type="text" class="form-control form-control-lg" id="db_name" name="db_name" value="van_fleet_management" required>
-                                        <div class="form-text">Will be created if it doesn't exist</div>
-                                    </div>
-                                    
-                                    <div class="col-md-6">
-                                        <label for="db_user" class="form-label">
-                                            <i class="fas fa-user me-1"></i>Database Username
-                                        </label>
-                                        <input type="text" class="form-control form-control-lg" id="db_user" name="db_user" value="root" required>
-                                    </div>
-                                    
-                                    <div class="col-md-6">
-                                        <label for="db_pass" class="form-label">
-                                            <i class="fas fa-lock me-1"></i>Database Password
-                                        </label>
-                                        <input type="password" class="form-control form-control-lg" id="db_pass" name="db_pass">
-                                        <div class="form-text">Leave empty if no password is required</div>
-                                    </div>
-                                    
-                                    <div class="col-12 text-center">
-                                        <button type="submit" class="btn btn-primary btn-lg btn-custom">
-                                            <i class="fas fa-plug me-2"></i>Test Database Connection
-                                        </button>
-                                    </div>
-                                </form>
-
-                            <?php elseif ($step === 3): ?>
-                                <div class="text-center mb-4">
-                                    <h2><i class="fas fa-cogs me-2"></i>Ready for Installation</h2>
-                                    <p class="text-muted">Everything is configured. Let's install the database schema and initial data.</p>
-                                </div>
-                                
-                                <div class="system-showcase">
-                                    <h4 class="text-center mb-4">
-                                        <i class="fas fa-list-check me-2"></i>
-                                        What will be installed:
-                                    </h4>
-                                    
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <h6><i class="fas fa-table me-2 text-info"></i>Database Tables</h6>
-                                            <ul class="list-unstyled ms-3">
-                                                <li><i class="fas fa-check me-1 text-success"></i>Users & Authentication</li>
-                                                <li><i class="fas fa-check me-1 text-success"></i>Stations Management</li>
-                                                <li><i class="fas fa-check me-1 text-success"></i>Vehicle Fleet</li>
-                                                <li><i class="fas fa-check me-1 text-success"></i>Driver Profiles</li>
-                                                <li><i class="fas fa-check me-1 text-success"></i>Maintenance Records</li>
-                                                <li><i class="fas fa-check me-1 text-success"></i>Leave Management</li>
-                                                <li><i class="fas fa-check me-1 text-warning"></i><strong>Working Hours System</strong></li>
-                                                <li><i class="fas fa-check me-1 text-success"></i>Document Storage</li>
-                                            </ul>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <h6><i class="fas fa-data me-2 text-warning"></i>Initial Data</h6>
-                                            <ul class="list-unstyled ms-3">
-                                                <li><i class="fas fa-building me-1 text-primary"></i>5 Sample Stations (DRP4, DHE1, DHE4, DHE6, DBW1)</li>
-                                                <li><i class="fas fa-folder me-1 text-secondary"></i>Upload Directory Structure</li>
-                                                <li><i class="fas fa-shield-alt me-1 text-success"></i>Security Constraints</li>
-                                                <li><i class="fas fa-cog me-1 text-info"></i>System Configuration</li>
-                                            </ul>
-                                            
-                                            <div class="mt-3 p-3 bg-dark rounded">
-                                                <h6 class="text-light mb-2">
-                                                    <i class="fas fa-clock me-2"></i>Working Hours Features
-                                                </h6>
-                                                <small class="text-light">
-                                                    ✓ Driver time submission forms<br>
-                                                    ✓ Automated break calculations<br>
-                                                    ✓ Management approval workflows<br>
-                                                    ✓ Calendar-based review system<br>
-                                                    ✓ Monthly statistics tracking
-                                                </small>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="text-center">
-                                    <a href="?step=3&install_db=1" class="btn btn-success btn-lg btn-custom">
-                                        <i class="fas fa-rocket me-2"></i>Install FDMS Database
-                                    </a>
-                                </div>
-
-                            <?php elseif ($step === 4): ?>
-                                <div class="text-center success-animation">
-                                    <div class="mb-4">
-                                        <i class="fas fa-check-circle" style="font-size: 5rem; color: #28a745;"></i>
-                                    </div>
-                                    <h2 class="text-success mb-4">🎉 Installation Complete!</h2>
-                                    <p class="lead text-muted mb-4">FDMS has been successfully installed with full working hours tracking capabilities.</p>
-                                </div>
-
-                                <div class="system-showcase">
-                                    <h4 class="text-center mb-4">
-                                        <i class="fas fa-rocket me-2"></i>
-                                        Your System is Ready!
-                                    </h4>
-                                    
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <div class="role-section">
-                                                <div class="role-header">
-                                                    <div class="role-icon management-icon">
-                                                        <i class="fas fa-users-cog"></i>
-                                                    </div>
-                                                    <div>
-                                                        <h5 class="mb-1">Management Access</h5>
-                                                        <small class="text-muted">Station Managers & Dispatchers</small>
-                                                    </div>
-                                                </div>
-                                                <div class="text-center">
-                                                    <strong>Usernames:</strong> pnozharov / vmarkov<br>
-                                                    <strong>Password:</strong> Amazon2018!
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="col-md-6">
-                                            <div class="role-section">
-                                                <div class="role-header">
-                                                    <div class="role-icon driver-icon">
-                                                        <i class="fas fa-user-tie"></i>
-                                                    </div>
-                                                    <div>
-                                                        <h5 class="mb-1">Driver Access</h5>
-                                                        <small class="text-muted">Add drivers to enable login</small>
-                                                    </div>
-                                                </div>
-                                                <div class="text-center">
-                                                    <small class="text-muted">
-                                                        Drivers login with their Driver ID<br>
-                                                        (Password = Driver ID)
-                                                    </small>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="alert alert-warning">
-                                    <h5><i class="fas fa-shield-alt me-2"></i>Important Security Note</h5>
-                                    <p class="mb-2"><strong>Please delete this installation file (install.php) immediately for security reasons.</strong></p>
-                                    <p class="mb-0">This file contains sensitive setup information and should not be accessible after installation.</p>
-                                </div>
-                                
-                                <div class="text-center">
-                                    <a href="index.php" class="btn btn-success btn-lg btn-custom me-3">
-                                        <i class="fas fa-home me-2"></i>Launch FDMS
-                                    </a>
-                                    <a href="login.php" class="btn btn-primary btn-lg btn-custom">
-                                        <i class="fas fa-sign-in-alt me-2"></i>Management Login
-                                    </a>
-                                </div>
-
-                                <div class="text-center mt-4">
-                                    <small class="text-muted">
-                                        <i class="fas fa-info-circle me-1"></i>
-                                        For support and documentation, please refer to the system documentation or contact your administrator.
-                                    </small>
-                                </div>
-                            <?php endif; ?>
-                        </div>
+        <div class="install-card">
+            <div class="logo-section">
+                <i class="fas fa-truck logo-icon"></i>
+                <h1 class="mb-0">FDMS Installation</h1>
+                <p class="mb-0">Fleet & Driver Management System</p>
+            </div>
+            
+            <div class="card-body p-5">
+                <div class="step-indicator">
+                    <div class="step <?php echo $step >= 1 ? ($step > 1 ? 'completed' : 'active') : ''; ?>">
+                        <div class="step-circle">1</div>
+                        <small>Requirements</small>
                     </div>
+                    <div class="step <?php echo $step >= 2 ? ($step > 2 ? 'completed' : 'active') : ''; ?>">
+                        <div class="step-circle">2</div>
+                        <small>Database</small>
+                    </div>
+                    <div class="step <?php echo $step >= 3 ? ($step > 3 ? 'completed' : 'active') : ''; ?>">
+                        <div class="step-circle">3</div>
+                        <small>Installation</small>
+                    </div>
+                    <div class="step <?php echo $step >= 4 ? ($step > 4 ? 'completed' : 'active') : ''; ?>">
+                        <div class="step-circle">4</div>
+                        <small>Activation</small>
+                    </div>
+                    <div class="step <?php echo $step >= 5 ? 'active' : ''; ?>">
+                        <div class="step-circle">5</div>
+                        <small>Complete</small>
+                    </div>
+                </div>
+
+                <?php if ($message): ?>
+                    <div class="alert alert-success">
+                        <i class="fas fa-check-circle me-2"></i>
+                        <?php echo htmlspecialchars($message); ?>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($error): ?>
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        <?php echo htmlspecialchars($error); ?>
+                    </div>
+                <?php endif; ?>
+
+                <div class="content-section">
+                    <?php if ($step === 1): ?>
+                        <div class="text-center mb-4">
+                            <h2><i class="fas fa-clipboard-check me-2"></i>System Requirements</h2>
+                            <p class="text-muted">Checking if your server meets the requirements</p>
+                        </div>
+                        
+                        <div class="requirements-list">
+                            <?php foreach ($requirements as $requirement => $met): ?>
+                                <div class="d-flex justify-content-between align-items-center p-3 mb-2 border rounded bg-<?php echo $met ? 'success' : 'danger'; ?> bg-opacity-10">
+                                    <span>
+                                        <i class="fas fa-<?php echo $met ? 'check-circle text-success' : 'times-circle text-danger'; ?> me-2"></i>
+                                        <?php echo $requirement; ?>
+                                    </span>
+                                    <span class="badge bg-<?php echo $met ? 'success' : 'danger'; ?>">
+                                        <?php echo $met ? 'OK' : 'Failed'; ?>
+                                    </span>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        
+                        <div class="text-center mt-4">
+                            <?php if (array_product($requirements)): ?>
+                                <a href="?step=2" class="btn btn-primary btn-lg btn-custom">
+                                    <i class="fas fa-arrow-right me-2"></i>
+                                    Continue to Database Setup
+                                </a>
+                                <p class="text-success mt-3">
+                                    <i class="fas fa-check-circle me-1"></i>
+                                    All requirements met! Ready to proceed.
+                                </p>
+                            <?php else: ?>
+                                <div class="alert alert-warning">
+                                    <h5><i class="fas fa-exclamation-triangle me-2"></i>Requirements Not Met</h5>
+                                    <p class="mb-0">Some requirements are not satisfied. Please contact your hosting provider to resolve these issues.</p>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+
+                    <?php elseif ($step === 2): ?>
+                        <div class="text-center mb-4">
+                            <h2><i class="fas fa-database me-2"></i>Database Configuration</h2>
+                            <p class="text-muted">Configure your database connection settings</p>
+                        </div>
+                        
+                        <form method="POST" class="row g-4">
+                            <div class="col-md-6">
+                                <label for="db_host" class="form-label">
+                                    <i class="fas fa-server me-1"></i>Database Host
+                                </label>
+                                <input type="text" class="form-control form-control-lg" id="db_host" name="db_host" value="localhost" required>
+                                <div class="form-text">Usually 'localhost' for most hosting providers</div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label for="db_name" class="form-label">
+                                    <i class="fas fa-database me-1"></i>Database Name
+                                </label>
+                                <input type="text" class="form-control form-control-lg" id="db_name" name="db_name" value="van_fleet_management" required>
+                                <div class="form-text">Will be created if it doesn't exist</div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label for="db_user" class="form-label">
+                                    <i class="fas fa-user me-1"></i>Database Username
+                                </label>
+                                <input type="text" class="form-control form-control-lg" id="db_user" name="db_user" value="root" required>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <label for="db_pass" class="form-label">
+                                    <i class="fas fa-lock me-1"></i>Database Password
+                                </label>
+                                <input type="password" class="form-control form-control-lg" id="db_pass" name="db_pass">
+                                <div class="form-text">Leave empty if no password is required</div>
+                            </div>
+                            
+                            <div class="col-12 text-center">
+                                <button type="submit" class="btn btn-primary btn-lg btn-custom">
+                                    <i class="fas fa-plug me-2"></i>Test Database Connection
+                                </button>
+                            </div>
+                        </form>
+
+                    <?php elseif ($step === 3): ?>
+                        <div class="text-center mb-4">
+                            <h2><i class="fas fa-cogs me-2"></i>Ready for Installation</h2>
+                            <p class="text-muted">Everything is configured. Let's install the database schema and initial data.</p>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <h5><i class="fas fa-info-circle me-2"></i>What will be installed:</h5>
+                            <ul class="mb-0">
+                                <li>Database tables for users, stations, vehicles, and drivers</li>
+                                <li>Working hours and leave management system</li>
+                                <li>System activation table</li>
+                                <li>Initial station data and default admin user</li>
+                                <li>Upload directories for documents and images</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="text-center">
+                            <a href="?step=3&install_db=1" class="btn btn-success btn-lg btn-custom">
+                                <i class="fas fa-download me-2"></i>Install Database
+                            </a>
+                        </div>
+
+                    <?php elseif ($step === 4): ?>
+                        <div class="text-center mb-4">
+                            <h2><i class="fas fa-shield-alt me-2"></i>System Activation</h2>
+                            <p class="text-muted">Enter your product key to activate the FDMS</p>
+                        </div>
+                        
+                        <div class="activation-section">
+                            <div class="text-center mb-4">
+                                <i class="fas fa-key fa-3x mb-3"></i>
+                                <h4>Product Key Required</h4>
+                                <p class="mb-0">Your FDMS installation requires a valid product key to proceed.</p>
+                            </div>
+                            
+                            <form method="POST">
+                                <div class="mb-4">
+                                    <label for="product_key" class="form-label text-white">Product Key</label>
+                                    <input type="text" class="form-control form-control-lg key-input" 
+                                           id="product_key" name="product_key" 
+                                           placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+                                           maxlength="29" required>
+                                    <div class="form-text text-white-50">
+                                        Format: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
+                                    </div>
+                                </div>
+
+                                <div class="text-center">
+                                    <button type="submit" name="activate_system" class="btn btn-light btn-lg btn-custom">
+                                        <i class="fas fa-unlock me-2"></i>Activate System
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <strong>Default Login Credentials:</strong><br>
+                            Username: <code>pnozharov</code><br>
+                            Password: <code>Amazon2018!</code><br>
+                            Role: Station Manager
+                        </div>
+
+                    <?php elseif ($step === 5): ?>
+                        <div class="text-center">
+                            <div class="mb-4">
+                                <i class="fas fa-check-circle text-success" style="font-size: 5rem;"></i>
+                                <h2 class="text-success mt-3">Installation Complete!</h2>
+                                <p class="text-muted">Your FDMS has been successfully installed and activated.</p>
+                            </div>
+                            
+                            <div class="alert alert-success">
+                                <h5><i class="fas fa-rocket me-2"></i>What's Next?</h5>
+                                <ul class="text-start mb-0">
+                                    <li>The install.php file will be automatically deleted</li>
+                                    <li>You can log in with the station manager account</li>
+                                    <li>Start adding stations, vehicles, and drivers</li>
+                                    <li>Configure your fleet management settings</li>
+                                </ul>
+                            </div>
+                            
+                            <a href="?step=5&finish=1" class="btn btn-success btn-lg btn-custom">
+                                <i class="fas fa-home me-2"></i>Launch FDMS
+                            </a>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -990,32 +937,19 @@ if ($step === 3 && isset($_GET['install_db'])) {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Add some interactive enhancements
-        document.addEventListener('DOMContentLoaded', function() {
-            // Auto-dismiss alerts after 5 seconds
-            const alerts = document.querySelectorAll('.alert-dismissible');
-            alerts.forEach(alert => {
-                setTimeout(() => {
-                    const bsAlert = new bootstrap.Alert(alert);
-                    bsAlert.close();
-                }, 5000);
+        // Auto-format product key input
+        const productKeyInput = document.getElementById('product_key');
+        if (productKeyInput) {
+            productKeyInput.addEventListener('input', function(e) {
+                let value = e.target.value.replace(/[^A-Z0-9]/g, '');
+                let formatted = value.match(/.{1,4}/g)?.join('-') || value;
+                if (formatted.length <= 29) {
+                    e.target.value = formatted.toUpperCase();
+                }
             });
             
-            // Add loading state to form submissions
-            const forms = document.querySelectorAll('form');
-            forms.forEach(form => {
-                form.addEventListener('submit', function(e) {
-                    const submitBtn = form.querySelector('button[type="submit"]');
-                    if (submitBtn) {
-                        submitBtn.disabled = true;
-                        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Processing...';
-                    }
-                });
-            });
-            
-            // Add smooth scroll behavior for single-page navigation
-            document.documentElement.style.scrollBehavior = 'smooth';
-        });
+            productKeyInput.focus();
+        }
     </script>
 </body>
 </html>

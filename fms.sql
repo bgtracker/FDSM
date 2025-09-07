@@ -134,6 +134,89 @@ ALTER TABLE drivers ADD COLUMN salary_account VARCHAR(34) NULL AFTER address;
 -- Add index for salary_account if needed for searches
 CREATE INDEX idx_salary_account ON drivers(salary_account);
 
+-- Working Hours Database Schema
+-- Add this to your existing database
+
+-- Working hours submissions table
+CREATE TABLE IF NOT EXISTS working_hours (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    driver_id INT NOT NULL,
+    station_id INT NOT NULL,
+    work_date DATE NOT NULL,
+    tour_number VARCHAR(7) NOT NULL,
+    van_id INT NOT NULL,
+    
+    -- Kilometers
+    km_start INT NOT NULL,
+    km_end INT NOT NULL,
+    km_total INT GENERATED ALWAYS AS (km_end - km_start) STORED,
+    
+    -- Times (stored as TIME type for easier calculations)
+    scanner_login TIME NOT NULL,
+    depo_departure TIME NOT NULL,
+    first_delivery TIME NOT NULL,
+    last_delivery TIME NOT NULL,
+    depo_return TIME NOT NULL,
+    break_minutes INT NOT NULL,
+    total_minutes INT NOT NULL,
+    
+    -- Status and approval
+    status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    approved_by INT NULL,
+    approved_at TIMESTAMP NULL,
+    rejection_reason TEXT NULL,
+    
+    -- Metadata
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    -- Foreign key constraints
+    FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE,
+    FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+    FOREIGN KEY (van_id) REFERENCES vans(id) ON DELETE CASCADE,
+    FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
+    
+    -- Indexes for performance
+    INDEX idx_driver_date (driver_id, work_date),
+    INDEX idx_station_date (station_id, work_date),
+    INDEX idx_status (status),
+    INDEX idx_work_date (work_date),
+    
+    -- Unique constraint to prevent duplicate submissions
+    UNIQUE KEY unique_driver_date (driver_id, work_date)
+);
+
+-- Working hours edits log (to track changes made by management)
+CREATE TABLE IF NOT EXISTS working_hours_edits (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    working_hours_id INT NOT NULL,
+    edited_by INT NOT NULL,
+    field_name VARCHAR(50) NOT NULL,
+    old_value VARCHAR(100) NOT NULL,
+    new_value VARCHAR(100) NOT NULL,
+    edit_reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    FOREIGN KEY (working_hours_id) REFERENCES working_hours(id) ON DELETE CASCADE,
+    FOREIGN KEY (edited_by) REFERENCES users(id) ON DELETE CASCADE,
+    
+    INDEX idx_working_hours_id (working_hours_id),
+    INDEX idx_edited_by (edited_by)
+);
+
+CREATE TABLE IF NOT EXISTS `system_activation` (
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `product_key` varchar(255) NOT NULL,
+    `activated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `activated_by` int(11) DEFAULT NULL,
+    `system_info` text DEFAULT NULL,
+    `status` enum('active','inactive') DEFAULT 'active',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `product_key` (`product_key`),
+    KEY `activated_by` (`activated_by`),
+    FOREIGN KEY (`activated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+);
+
 -- Insert initial stations
 INSERT INTO stations (station_code, station_name) VALUES
 ('DRP4', 'DRP4 Station'),
