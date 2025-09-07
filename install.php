@@ -290,6 +290,71 @@ if ($step === 3 && isset($_GET['install_db'])) {
             INDEX idx_dates (start_date, end_date),
             INDEX idx_station_date (station_id, start_date, end_date)
         );
+
+        CREATE TABLE IF NOT EXISTS working_hours (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            driver_id INT NOT NULL,
+            station_id INT NOT NULL,
+            work_date DATE NOT NULL,
+            tour_number VARCHAR(7) NOT NULL,
+            van_id INT NOT NULL,
+            
+            -- Kilometers
+            km_start INT NOT NULL,
+            km_end INT NOT NULL,
+            km_total INT GENERATED ALWAYS AS (km_end - km_start) STORED,
+            
+            -- Times (stored as TIME type for easier calculations)
+            scanner_login TIME NOT NULL,
+            depo_departure TIME NOT NULL,
+            first_delivery TIME NOT NULL,
+            last_delivery TIME NOT NULL,
+            depo_return TIME NOT NULL,
+            break_minutes INT NOT NULL,
+            total_minutes INT NOT NULL,
+            
+            -- Status and approval
+            status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+            approved_by INT NULL,
+            approved_at TIMESTAMP NULL,
+            rejection_reason TEXT NULL,
+            
+            -- Metadata
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            
+            -- Foreign key constraints
+            FOREIGN KEY (driver_id) REFERENCES drivers(id) ON DELETE CASCADE,
+            FOREIGN KEY (station_id) REFERENCES stations(id) ON DELETE CASCADE,
+            FOREIGN KEY (van_id) REFERENCES vans(id) ON DELETE CASCADE,
+            FOREIGN KEY (approved_by) REFERENCES users(id) ON DELETE SET NULL,
+            
+            -- Indexes for performance
+            INDEX idx_driver_date (driver_id, work_date),
+            INDEX idx_station_date (station_id, work_date),
+            INDEX idx_status (status),
+            INDEX idx_work_date (work_date),
+            
+            -- Unique constraint to prevent duplicate submissions
+            UNIQUE KEY unique_driver_date (driver_id, work_date)
+        );
+
+        CREATE TABLE IF NOT EXISTS working_hours_edits (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            working_hours_id INT NOT NULL,
+            edited_by INT NOT NULL,
+            field_name VARCHAR(50) NOT NULL,
+            old_value VARCHAR(100) NOT NULL,
+            new_value VARCHAR(100) NOT NULL,
+            edit_reason TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            
+            FOREIGN KEY (working_hours_id) REFERENCES working_hours(id) ON DELETE CASCADE,
+            FOREIGN KEY (edited_by) REFERENCES users(id) ON DELETE CASCADE,
+            
+            INDEX idx_working_hours_id (working_hours_id),
+            INDEX idx_edited_by (edited_by)
+        );
         ";
         
         $pdo->exec($sql);
@@ -425,13 +490,13 @@ if ($step === 3 && isset($_GET['install_db'])) {
             text-align: center;
             border: none;
             transition: transform 0.3s ease;
-            color: #212529 !important; /* Ensure text is dark */
+            color: #212529 !important;
         }
         .feature-card h5, .feature-card p, .feature-card small, .feature-card strong, .feature-card div {
-            color: #212529 !important; /* Force dark text for all elements */
+            color: #212529 !important;
         }
         .feature-card .text-muted {
-            color: #6c757d !important; /* Proper muted color but still visible */
+            color: #6c757d !important;
         }
         .feature-card:hover {
             transform: translateY(-5px);
@@ -532,7 +597,7 @@ if ($step === 3 && isset($_GET['install_db'])) {
                             <i class="fas fa-truck logo-icon"></i>
                             <h1 class="display-5 mb-2">FDMS</h1>
                             <h4 class="mb-3">Fleet & Driver Management System</h4>
-                            <p class="lead mb-0">Professional fleet management solution for modern transportation companies</p>
+                            <p class="lead mb-0">Professional fleet management solution with comprehensive working hours tracking</p>
                         </div>
 
                         <div class="card-body p-5">
@@ -600,7 +665,7 @@ if ($step === 3 && isset($_GET['install_db'])) {
                                 <!-- Welcome & System Overview -->
                                 <div class="text-center mb-5">
                                     <h2 class="mb-4">Welcome to FDMS Installation</h2>
-                                    <p class="lead text-muted">Let's set up your comprehensive fleet and driver management solution</p>
+                                    <p class="lead text-muted">Let's set up your comprehensive fleet and driver management solution with working hours tracking</p>
                                 </div>
 
                                 <!-- System Features Overview -->
@@ -627,6 +692,7 @@ if ($step === 3 && isset($_GET['install_db'])) {
                                                     <li><i class="fas fa-check text-success me-2"></i>Driver assignment & tracking</li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Vehicle maintenance records</li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Leave management system</li>
+                                                    <li><i class="fas fa-check text-success me-2"></i><strong>Working hours approval</strong></li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Multi-station support</li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Document management</li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Role-based permissions</li>
@@ -648,9 +714,10 @@ if ($step === 3 && isset($_GET['install_db'])) {
                                                 <ul class="list-unstyled mb-0 text-muted">
                                                     <li><i class="fas fa-check text-success me-2"></i>Personal dashboard</li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Assigned vehicle info</li>
+                                                    <li><i class="fas fa-check text-success me-2"></i><strong>Daily hours submission</strong></li>
+                                                    <li><i class="fas fa-check text-success me-2"></i><strong>Monthly statistics tracking</strong></li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Document upload</li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Profile management</li>
-                                                    <li><i class="fas fa-check text-success me-2"></i>Work statistics</li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Simple ID-based login</li>
                                                     <li><i class="fas fa-check text-success me-2"></i>Mobile-friendly design</li>
                                                 </ul>
@@ -662,24 +729,24 @@ if ($step === 3 && isset($_GET['install_db'])) {
                                 <!-- Technical Features -->
                                 <div class="feature-grid">
                                     <div class="feature-card">
-                                        <i class="fas fa-shield-alt feature-icon text-primary"></i>
+                                        <i class="fas fa-clock feature-icon text-primary"></i>
+                                        <h5>Working Hours Tracking</h5>
+                                        <p class="text-muted mb-0">Comprehensive time tracking with automated calculations and approval workflows</p>
+                                    </div>
+                                    <div class="feature-card">
+                                        <i class="fas fa-shield-alt feature-icon text-success"></i>
                                         <h5>Secure & Reliable</h5>
                                         <p class="text-muted mb-0">Role-based access control, secure file uploads, and comprehensive validation</p>
                                     </div>
                                     <div class="feature-card">
-                                        <i class="fas fa-mobile-alt feature-icon text-success"></i>
+                                        <i class="fas fa-mobile-alt feature-icon text-warning"></i>
                                         <h5>Mobile Responsive</h5>
                                         <p class="text-muted mb-0">Works perfectly on desktop, tablet, and mobile devices</p>
                                     </div>
                                     <div class="feature-card">
-                                        <i class="fas fa-chart-line feature-icon text-warning"></i>
+                                        <i class="fas fa-chart-line feature-icon text-info"></i>
                                         <h5>Analytics Ready</h5>
-                                        <p class="text-muted mb-0">Built-in reporting and statistics with calendar-based leave management</p>
-                                    </div>
-                                    <div class="feature-card">
-                                        <i class="fas fa-cloud-upload-alt feature-icon text-info"></i>
-                                        <h5>Document Management</h5>
-                                        <p class="text-muted mb-0">Comprehensive file upload system for vehicles and drivers</p>
+                                        <p class="text-muted mb-0">Built-in reporting, statistics, and calendar-based management</p>
                                     </div>
                                 </div>
 
@@ -788,6 +855,7 @@ if ($step === 3 && isset($_GET['install_db'])) {
                                                 <li><i class="fas fa-check me-1 text-success"></i>Driver Profiles</li>
                                                 <li><i class="fas fa-check me-1 text-success"></i>Maintenance Records</li>
                                                 <li><i class="fas fa-check me-1 text-success"></i>Leave Management</li>
+                                                <li><i class="fas fa-check me-1 text-warning"></i><strong>Working Hours System</strong></li>
                                                 <li><i class="fas fa-check me-1 text-success"></i>Document Storage</li>
                                             </ul>
                                         </div>
@@ -802,11 +870,14 @@ if ($step === 3 && isset($_GET['install_db'])) {
                                             
                                             <div class="mt-3 p-3 bg-dark rounded">
                                                 <h6 class="text-light mb-2">
-                                                    <i class="fas fa-info-circle me-2"></i>Next Step
+                                                    <i class="fas fa-clock me-2"></i>Working Hours Features
                                                 </h6>
                                                 <small class="text-light">
-                                                    After database installation, you'll create<br>
-                                                    your administrator account to manage FDMS
+                                                    ✓ Driver time submission forms<br>
+                                                    ✓ Automated break calculations<br>
+                                                    ✓ Management approval workflows<br>
+                                                    ✓ Calendar-based review system<br>
+                                                    ✓ Monthly statistics tracking
                                                 </small>
                                             </div>
                                         </div>
@@ -825,7 +896,7 @@ if ($step === 3 && isset($_GET['install_db'])) {
                                         <i class="fas fa-check-circle" style="font-size: 5rem; color: #28a745;"></i>
                                     </div>
                                     <h2 class="text-success mb-4">🎉 Installation Complete!</h2>
-                                    <p class="lead text-muted mb-4">FDMS has been successfully installed and is ready to use.</p>
+                                    <p class="lead text-muted mb-4">FDMS has been successfully installed with full working hours tracking capabilities.</p>
                                 </div>
 
                                 <div class="system-showcase">

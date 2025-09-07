@@ -30,6 +30,16 @@ $current_user = $user ?: $driver;
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link <?php echo ($current_page === 'submit_hours') ? 'active' : ''; ?>" href="submit_working_hours.php">
+                            <i class="fas fa-clock me-1"></i>Working Hours Submission
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($current_page === 'my_hours') ? 'active' : ''; ?>" href="my_working_hours.php">
+                            <i class="fas fa-history me-1"></i>My Submissions
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="logout.php">
                             <i class="fas fa-sign-out-alt me-1"></i>Logout
                         </a>
@@ -63,6 +73,12 @@ $current_user = $user ?: $driver;
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($current_page === 'leaves') ? 'active' : ''; ?>" href="manage_leaves.php">
                             <i class="fas fa-calendar-alt me-1"></i>Manage Leaves
+                        </a>
+                    </li>
+                    
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($current_page === 'working_hours') ? 'active' : ''; ?>" href="manage_working_hours.php">
+                            <i class="fas fa-clock me-1"></i>Working Hours
                         </a>
                     </li>
                     

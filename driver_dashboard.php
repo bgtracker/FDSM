@@ -73,6 +73,31 @@ $stmt = $pdo->prepare("SELECT * FROM driver_documents WHERE driver_id = ? ORDER 
 $stmt->execute([$driver['id']]);
 $driver_documents = $stmt->fetchAll();
 
+// Get current month working hours statistics (only approved hours)
+$current_month = date('Y-m');
+$stmt = $pdo->prepare("
+    SELECT 
+        COALESCE(SUM(km_total), 0) as total_km,
+        COUNT(*) as total_tours,
+        COALESCE(SUM(total_minutes), 0) as total_minutes
+    FROM working_hours 
+    WHERE driver_id = ? 
+    AND DATE_FORMAT(work_date, '%Y-%m') = ? 
+    AND status = 'approved'
+");
+$stmt->execute([$driver['id'], $current_month]);
+$monthly_stats = $stmt->fetch();
+
+$total_km = $monthly_stats['total_km'] ?? 0;
+$total_tours = $monthly_stats['total_tours'] ?? 0;
+$total_hours = round(($monthly_stats['total_minutes'] ?? 0) / 60, 1);
+
+// Check if driver has submitted hours for today
+$today = date('Y-m-d');
+$stmt = $pdo->prepare("SELECT id, status FROM working_hours WHERE driver_id = ? AND work_date = ?");
+$stmt->execute([$driver['id'], $today]);
+$today_submission = $stmt->fetch();
+
 // Helper function to get van status badge
 function getVanStatusBadge($status) {
     switch($status) {
@@ -115,6 +140,11 @@ function getVanStatusBadge($status) {
             color: white;
             border: none;
         }
+        .hours-card {
+            background: linear-gradient(135deg, #fd7e14 0%, #dc3545 100%);
+            color: white;
+            border: none;
+        }
         .profile-picture {
             width: 80px;
             height: 80px;
@@ -132,6 +162,22 @@ function getVanStatusBadge($status) {
             align-items: center;
             justify-content: center;
             color: #fff;
+        }
+        .stat-card {
+            border-radius: 15px;
+            border: none;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        }
+        .stat-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: white;
+            margin-bottom: 1rem;
         }
     </style>
 </head>
@@ -163,11 +209,116 @@ function getVanStatusBadge($status) {
     <div class="container my-5">
         <?php echo $message; ?>
         
+        <!-- Monthly Statistics -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <h4 class="mb-3">
+                    <i class="fas fa-chart-line me-2"></i>
+                    This Month Statistics (<?php echo date('F Y'); ?>)
+                    <small class="text-muted">- Approved Hours Only</small>
+                </h4>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card stat-card text-center">
+                    <div class="card-body">
+                        <div class="stat-icon bg-primary mx-auto">
+                            <i class="fas fa-road"></i>
+                        </div>
+                        <h3 class="text-primary mb-1"><?php echo number_format($total_km); ?></h3>
+                        <h6 class="text-muted mb-0">Kilometers Driven</h6>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card stat-card text-center">
+                    <div class="card-body">
+                        <div class="stat-icon bg-success mx-auto">
+                            <i class="fas fa-route"></i>
+                        </div>
+                        <h3 class="text-success mb-1"><?php echo $total_tours; ?></h3>
+                        <h6 class="text-muted mb-0">Tours Completed</h6>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="card stat-card text-center">
+                    <div class="card-body">
+                        <div class="stat-icon bg-warning mx-auto">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <h3 class="text-warning mb-1"><?php echo $total_hours; ?>h</h3>
+                        <h6 class="text-muted mb-0">Working Hours</h6>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
         <div class="row">
-            <!-- Assigned Vehicle Information -->
+            <!-- Working Hours Section -->
             <div class="col-lg-8 mb-4">
+                <div class="card hours-card">
+                    <div class="card-header border-0">
+                        <h5 class="mb-0 text-white">
+                            <i class="fas fa-clock me-2"></i>Working Hours Submission
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-8">
+                                <h6 class="text-white mb-2">Daily Hours Tracking</h6>
+                                <?php if ($today_submission): ?>
+                                    <?php if ($today_submission['status'] === 'pending'): ?>
+                                        <p class="mb-2">
+                                            <i class="fas fa-clock me-1"></i>
+                                            <strong>Today's Status:</strong> 
+                                            <span class="badge bg-warning">Pending Review</span>
+                                        </p>
+                                        <p class="mb-0 small">Your hours for today have been submitted and are awaiting approval.</p>
+                                    <?php elseif ($today_submission['status'] === 'approved'): ?>
+                                        <p class="mb-2">
+                                            <i class="fas fa-check-circle me-1"></i>
+                                            <strong>Today's Status:</strong> 
+                                            <span class="badge bg-success">Approved</span>
+                                        </p>
+                                        <p class="mb-0 small">Your hours for today have been approved.</p>
+                                    <?php elseif ($today_submission['status'] === 'rejected'): ?>
+                                        <p class="mb-2">
+                                            <i class="fas fa-times-circle me-1"></i>
+                                            <strong>Today's Status:</strong> 
+                                            <span class="badge bg-danger">Rejected</span>
+                                        </p>
+                                        <p class="mb-0 small">Your hours were rejected. Please resubmit with corrections.</p>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <p class="mb-2">
+                                        <i class="fas fa-exclamation-triangle me-1"></i>
+                                        <strong>Today's Status:</strong> 
+                                        <span class="badge bg-secondary">Not Submitted</span>
+                                    </p>
+                                    <p class="mb-0 small">Remember to submit your working hours for today.</p>
+                                <?php endif; ?>
+                            </div>
+                            <div class="col-md-4 text-center">
+                                <i class="fas fa-clock fa-4x text-white opacity-75"></i>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <?php if (!$today_submission || $today_submission['status'] === 'rejected'): ?>
+                                <a href="submit_working_hours.php" class="btn btn-light btn-lg">
+                                    <i class="fas fa-plus me-2"></i>Submit Daily Hours
+                                </a>
+                            <?php else: ?>
+                                <a href="my_working_hours.php" class="btn btn-light btn-lg">
+                                    <i class="fas fa-eye me-2"></i>View My Submissions
+                                </a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Assigned Vehicle Information -->
                 <?php if ($assigned_van): ?>
-                <div class="card van-info-card">
+                <div class="card van-info-card mt-4">
                     <div class="card-header border-0">
                         <h5 class="mb-0 text-white">
                             <i class="fas fa-truck me-2"></i>Your Assigned Vehicle
@@ -191,7 +342,7 @@ function getVanStatusBadge($status) {
                     </div>
                 </div>
                 <?php else: ?>
-                <div class="card">
+                <div class="card mt-4">
                     <div class="card-body text-center py-5">
                         <i class="fas fa-truck-slash fa-4x text-muted mb-3"></i>
                         <h5 class="text-muted">No Vehicle Assigned</h5>
@@ -290,6 +441,14 @@ function getVanStatusBadge($status) {
                     </div>
                     <div class="card-body">
                         <div class="d-grid gap-2">
+                            <a href="submit_working_hours.php" class="btn btn-warning">
+                                <i class="fas fa-clock me-1"></i>Submit Hours
+                            </a>
+                            
+                            <a href="my_working_hours.php" class="btn btn-outline-warning">
+                                <i class="fas fa-history me-1"></i>View Submissions
+                            </a>
+                            
                             <?php if ($assigned_van): ?>
                             <button type="button" class="btn btn-success" disabled>
                                 <i class="fas fa-truck me-1"></i>Vehicle Assigned
@@ -308,7 +467,7 @@ function getVanStatusBadge($status) {
                         <div class="mt-3">
                             <small class="text-muted">
                                 <i class="fas fa-info-circle me-1"></i>
-                                More features coming soon!
+                                Track your daily working hours!
                             </small>
                         </div>
                     </div>

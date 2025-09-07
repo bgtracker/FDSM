@@ -115,14 +115,25 @@ $page_title = 'Management Dashboard - Van Fleet Management';
                 </div>
             </div>
             
+            <div class="col-md-4 mb-4">
+                <div class="card feature-card h-100">
+                    <div class="card-body text-center">
+                        <i class="fas fa-clock fa-3x text-info mb-3"></i>
+                        <h5 class="card-title">Working Hours</h5>
+                        <p class="card-text">Review and approve driver working hour submissions.</p>
+                        <a href="manage_working_hours.php" class="btn btn-info">Review Hours</a>
+                    </div>
+                </div>
+            </div>
+            
             <?php if ($user['user_type'] === 'station_manager'): ?>
             <div class="col-md-4 mb-4">
                 <div class="card feature-card h-100">
                     <div class="card-body text-center">
-                        <i class="fas fa-building fa-3x text-info mb-3"></i>
+                        <i class="fas fa-building fa-3x text-secondary mb-3"></i>
                         <h5 class="card-title">Manage Stations</h5>
                         <p class="card-text">Create and manage stations across your network.</p>
-                        <a href="stations.php" class="btn btn-info">Manage Stations</a>
+                        <a href="stations.php" class="btn btn-secondary">Manage Stations</a>
                     </div>
                 </div>
             </div>
