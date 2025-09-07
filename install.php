@@ -355,6 +355,19 @@ if ($step === 3 && isset($_GET['install_db'])) {
             INDEX idx_working_hours_id (working_hours_id),
             INDEX idx_edited_by (edited_by)
         );
+
+        CREATE TABLE IF NOT EXISTS `system_activation` (
+            `id` int(11) NOT NULL AUTO_INCREMENT,
+            `product_key` varchar(255) NOT NULL,
+            `activated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            `activated_by` int(11) DEFAULT NULL,
+            `system_info` text DEFAULT NULL,
+            `status` enum('active','inactive') DEFAULT 'active',
+            PRIMARY KEY (`id`),
+            UNIQUE KEY `product_key` (`product_key`),
+            KEY `activated_by` (`activated_by`),
+            FOREIGN KEY (`activated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+        );
         ";
         
         $pdo->exec($sql);
